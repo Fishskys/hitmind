@@ -1,0 +1,4 @@
+{"id": "d1", "kind": "project", "title": "存储选型", "content": "项目数据库使用 SQLite，部署在本地"}
+{"id": "d2", "kind": "persona", "title": "主题偏好", "content": "用户喜欢深色主题"}
+{"id": "d3", "kind": "fact", "title": "厨房用品", "content": "paper towels are in the kitchen drawer"}
+{"id": "d4", "kind": "event", "title": "会议", "content": "周三和设计团队开会讨论了检索方案"}

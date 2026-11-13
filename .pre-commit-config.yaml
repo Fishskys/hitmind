@@ -1,0 +1,13 @@
+# pre-commit 配置（敏感信息泄漏拦截）
+# 用法（iyp 的官方 pre-commit 集成）：repo + rev(真实 tag) + id: iyp-check 三行引用远程 hook；
+#   language: system 表示直接调用 PATH 中的 iyp（需 `iyp` 已安装并在系统 PATH，本例 ~/.local/bin）。
+# 生效：
+#   pre-commit install          # 安装 git 钩子，之后每次 git commit 自动跑
+#   pre-commit run --all-files  # 手动全量体检
+# entry 即 `iyp check --stage --strict`：只查本次暂存文件、零交互零修改、命中值默认脱敏；
+#   high/medium/low 均阻断（--strict），命中则返回非零退出码、Git 取消本次提交。
+repos:
+  - repo: https://github.com/Fishskys/init_your_proj
+    rev: v0.2.1
+    hooks:
+      - id: iyp-check
