@@ -1,17 +1,19 @@
 # HitMind
 
-> 本地优先、轻量、可被多个 Agent 共同读写的长期记忆服务。Core 是一套宿主无关的纯 Python + SQLite 引擎。
+> 这是一个主打本地优先、轻量、可被多个 Agent 共同读写的长期记忆服务。
 
-HitMind 从日常对话中识别值得长期保留的信息，整理成可复用的记忆单元，按需准确召回，并维护新旧关系与规模。它把「写时确定性判定（零 LLM）」与「闲时可选 LLM 整理」分开：默认零模型也能跑，聪明是增量。
+HitMind 支持 work 和 chat 两种模式，分别适用于长对话与短对话。底层基于检索增强生成（RAG），可独立配置向量模型与Rerank模型。目前设计了基于本核心的hermes适配插件以及可多端使用的MCP服务。
 
-完整设计与决策见 [`docs/architecture/`](docs/architecture/README.md)（`docs/framework.md` 为指向该索引的薄指针）。
+完整设计与决策见 [`docs/architecture/`](docs/architecture/README.md)。
+
+记忆测评：在[chat-memory-benchmark](https://github.com/Ornn8/chat-memory-benchmark) 1.0六人物测评集中成绩为660/714，92.4%（开启rerank），LLM调用成本仅1.8元。
 
 ---
 
 ## 核心特性
 
 - **多 Agent 共享**：共享靠 Core + Schema + 同一个 SQLite 文件，不靠某个接口类。有钩子的宿主走 Provider + 压缩钩子；无钩子的宿主走 MCP。
-- **轻量、core 零第三方依赖**：纯标准库，单文件 SQLite，无重型服务与知识图谱。作为 Provider 只向AGENT暴露 **9 个工具（schema ≈660 tokens）**，无编译扩展、无需 side venv，装进宿主 Python 即可跑。
+- **轻量、core 零第三方依赖**：纯标准库，单文件 SQLite，**无重型服务与知识图谱**。作为 Provider 只向AGENT暴露 **9 个工具（schema ≈660 tokens）**，无编译扩展、无需 side venv，装进宿主 Python 即可跑。
 - **合理利用上下文压缩机制**：利用hermes压缩后钩子，episode 直接保存宿主累积压缩摘要，由 LLM 做「上次 vs 这次」的差异比较、增量抽取记忆；
 - **闲时可扩展整理**：写时零 LLM 预聚类（余弦单链）→ 闲时拉取式 LLM 定稿 topic / 复核版本 / chat 批次抽取；任务可插拔、默认开启。
 - **低LLM调用**：仅部分闲时任务会调用LLM，不阻塞正常AGENT流程。
@@ -155,12 +157,7 @@ uv run hitmind-mcp            # stdio；streamable-HTTP 规划中
 
 ## 路线图
 
-- [x] **v1 核心**：Core（SQLite / 写闸门 / 检索 / 生命周期）+ 宿主绑定 + MCP，core 零依赖。
-- [x] **压缩驱动 episode + 增量抽取**；chat 游标批次；可扩展闲时线程。
-- [x] **topic 拉取式双阈值定稿**（写时零 LLM 预聚类 → 闲时 LLM 定稿，含 `corrections` 落库）。
-- [x] **全量参数化桌面配置页 + 记忆重要性参与打分 + JSON 导出/导入**。
-- [x] **混合检索增强**：dense 余弦门槛可配、二级 cross-encoder 重排、写入时时间归一化。
-- [ ] 真实语料上的检索/聚类阈值校准；`episode_summary` 在召回标题卡中的呈现。
+- [ ] Deepseek harness适配插件设计
 
 ---
 
@@ -184,5 +181,5 @@ HitMind 的部分设计思路参考了以下记忆插件 / 项目，特此致谢
 ## 文档索引
 
 - 架构总览与分模块文档：[`docs/architecture/README.md`](docs/architecture/README.md)
-- 设计决策薄指针：[`docs/framework.md`](docs/framework.md)
+- 设计决策索引：[`docs/framework.md`](docs/framework.md)
 
