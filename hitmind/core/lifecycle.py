@@ -13,6 +13,21 @@ from datetime import UTC, datetime, timedelta, timezone
 DEFAULT_TZ_HOURS = 8
 
 
+def system_tz_hours() -> float:
+    """Read the OS local timezone offset (hours) at call time — zero config, no deps.
+
+    Uses ``datetime.now().astimezone()``, which consults the process TZ / the system
+    zoneinfo (e.g. Asia/Shanghai -> +8.0). Falls back to +8 on any error.
+    """
+    try:
+        off = datetime.now().astimezone().utcoffset()
+        if off is not None:
+            return off.total_seconds() / 3600.0
+    except Exception:
+        pass
+    return float(DEFAULT_TZ_HOURS)
+
+
 def _tzinfo(tz_hours: float | None = None) -> timezone:
     h = DEFAULT_TZ_HOURS if tz_hours is None else tz_hours
     return timezone(timedelta(hours=float(h)))

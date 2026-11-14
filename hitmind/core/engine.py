@@ -85,6 +85,26 @@ def _locked(method):
 
 
 class Engine:
+    @staticmethod
+    def _resolve_tz_hours(explicit) -> float:
+        """Resolve the stored-timestamp timezone offset (hours).
+
+        Priority: explicit numeric arg > ``HITMIND_TZ_HOURS`` env > OS local timezone.
+        ``None`` / ``"auto"`` / ``""`` means "read the system timezone" (zero-config).
+        """
+        candidates = [explicit, os.environ.get("HITMIND_TZ_HOURS")]
+        for c in candidates:
+            if c is None:
+                continue
+            s = str(c).strip().lower()
+            if s in ("", "auto"):
+                continue
+            try:
+                return float(s)
+            except ValueError:
+                continue
+        return lifecycle_mod.system_tz_hours()
+
     def __init__(self, db_path: str, *, agent_id: str = "hermes", embedder: Optional[Embedder] = None,
                  retrieval_config: Optional[dict] = None,
                  reranker: Optional[Reranker] = None,
@@ -189,12 +209,11 @@ class Engine:
         self.importance_weight = float(_cfg_or(importance_weight, lifecycle_mod.W_IMP))
         self.capacity_warn = int(_cfg_or(capacity_warn, lifecycle_mod.CAPACITY_WARN))
         # timezone offset (hours) for the logical/display timestamps written to the store.
-        # Single-number config, default +8 (Asia/Shanghai). Stored timestamps are
-        # second-precision, 'T'-separated, and carry this offset (e.g. ...T15:22:48+08:00).
-        self.tz_hours = float(
-            tz_hours if tz_hours is not None
-            else os.environ.get("HITMIND_TZ_HOURS", str(lifecycle_mod.DEFAULT_TZ_HOURS))
-        )
+        # Resolution: explicit numeric arg > HITMIND_TZ_HOURS env > OS local timezone (auto).
+        # A value of "auto"/None/"" means "read the system tz" — zero config by default.
+        # Stored timestamps are second-precision, 'T'-separated, carrying this offset
+        # (e.g. ...T15:22:48+08:00).
+        self.tz_hours = self._resolve_tz_hours(tz_hours)
         # idle/background tasks (chat batch, topic aggregation, ...). Registered by the
         # adapter; run by an idle runner. Never on the hot path.
         self._pending_tasks: dict[str, Any] = {}

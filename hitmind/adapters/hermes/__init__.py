@@ -254,7 +254,7 @@ class HitMindMemoryProvider(MemoryProvider):  # type: ignore[misc]
             rel_weight=self._config_value("rel_weight", "HITMIND_REL_WEIGHT", 0.8, float),
             importance_weight=self._config_value("importance_weight", "HITMIND_IMPORTANCE_WEIGHT", 0.1, float),
             time_normalize=self._config_bool("time_normalize", "HITMIND_TIME_NORMALIZE", True),
-            tz_hours=self._config_value("tz_hours", "HITMIND_TZ_HOURS", 8, float),
+            tz_hours=self._config_value("tz_hours", "HITMIND_TZ_HOURS", "auto"),
             capacity_warn=self._config_value("capacity_warn", "HITMIND_CAPACITY_WARN", 200000, int),
             consolidate_llm_enabled=self._config_bool("consolidate_llm_enabled", "HITMIND_CONSOLIDATE_LLM_ENABLED", True),
         )

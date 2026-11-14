@@ -54,3 +54,39 @@ def test_lifecycle_helpers_emit_seconds_offset():
     assert lifecycle.refresh_expiry("persona", tz_hours=8) is None  # no TTL
     ev = lifecycle.refresh_expiry("event", tz_hours=8)
     assert SEC_RE.match(ev) and ev.endswith("+08:00"), ev
+
+
+def test_tz_resolution_priority(monkeypatch):
+    from hitmind.core.engine import Engine
+    monkeypatch.delenv("HITMIND_TZ_HOURS", raising=False)
+    # explicit numeric wins
+    assert Engine._resolve_tz_hours(5) == 5.0
+    # "auto"/""/None -> system tz
+    sys_h = lifecycle.system_tz_hours()
+    assert Engine._resolve_tz_hours("auto") == sys_h
+    assert Engine._resolve_tz_hours("") == sys_h
+    assert Engine._resolve_tz_hours(None) == sys_h
+    # env override when arg is auto/None
+    monkeypatch.setenv("HITMIND_TZ_HOURS", "-3")
+    assert Engine._resolve_tz_hours("auto") == -3.0
+    assert Engine._resolve_tz_hours(None) == -3.0
+    # explicit still beats env
+    assert Engine._resolve_tz_hours(7) == 7.0
+
+
+def test_auto_follows_system_tz(tmp_path):
+    from hitmind.core.engine import Engine
+    e = Engine(str(tmp_path / "d.db"), agent_id="x", tz_hours="auto")
+    try:
+        sys_h = lifecycle.system_tz_hours()
+        assert e.tz_hours == sys_h
+        mid = e.capture("自动时区", "fact")["data"]["id"]
+        ts = _ts(e, mid)
+        assert SEC_RE.match(ts), ts
+        # suffix matches the system offset
+        off = int(sys_h)
+        expected = f"{off:+03d}:00"
+        assert ts.endswith(expected), (ts, expected)
+    finally:
+        e.close()
+
