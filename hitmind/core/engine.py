@@ -6,6 +6,7 @@ import json
 import logging
 import os
 import secrets
+import sqlite3
 import threading
 import time
 from datetime import UTC, datetime, timedelta
@@ -238,6 +239,25 @@ class Engine:
             return content[:limit].rstrip()
         return content
 
+    def _insert_with_id_retry(self, build):
+        """Run a write that inserts one new memory row, retrying on an id collision.
+
+        A plain ``INSERT`` into ``memories`` raises ``IntegrityError`` (PRIMARY KEY)
+        when the freshly generated short id already exists. Because the write runs
+        inside ``write_tx`` (which fully ROLLBACKs on any exception), an existing
+        memory is never overwritten by a collision — the failed insert leaves the
+        store untouched. Here we catch just that PRIMARY-key collision, generate a
+        fresh id, and retry a bounded number of times; any other error propagates.
+        """
+        for attempt in range(8):
+            try:
+                return build(_new_id())
+            except sqlite3.IntegrityError as exc:
+                if "unique" not in str(exc).lower() and "primary key" not in str(exc).lower():
+                    raise
+                logger.warning("hitmind: id collision on insert (attempt %d), regenerating id", attempt + 1)
+        raise models.HitMindError(models.INTERNAL, "could not allocate a unique memory id")
+
     # -- ① capture ----------------------------------------------------------
     @_locked
     def capture(self, content: str, kind: str, *, title: str | None = None,
@@ -275,7 +295,6 @@ class Engine:
             ).fetchone()
             if dup is not None:
                 return models.ok({"id": dup["id"], "duplicate": True})
-        mid = _new_id()
         norm = self._normalize(title, content, now)
         emb = self._embed_text(norm or content, title)
         # topic is LLM-finalized; generation leaves it empty. cluster_id also empty
@@ -283,13 +302,18 @@ class Engine:
         tp = topic
         # un-consolidated rows get a pending_since so an eventual TTL sweep can find them
         pending_since = None if scope == "shared" and source == "manual" else now
-        with write_tx(self.conn) as cur:
-            self._insert(cur, mid, mid, 1, scope, kind, tags or [], title, content,
-                         importance, source, "active",
-                         h, None, now, None,
-                         default_valid_until(kind, now, self.ttl_days), emb, tp,
-                         pending_since, None, topic_mod.UNCLUSTERED, normalized_text=norm)
-            self._assign_cluster(cur, mid, emb, now)
+
+        def _build(mid):
+            with write_tx(self.conn) as cur:
+                self._insert(cur, mid, mid, 1, scope, kind, tags or [], title, content,
+                             importance, source, "active",
+                             h, None, now, None,
+                             default_valid_until(kind, now, self.ttl_days), emb, tp,
+                             pending_since, None, topic_mod.UNCLUSTERED, normalized_text=norm)
+                self._assign_cluster(cur, mid, emb, now)
+            return mid
+
+        mid = self._insert_with_id_retry(_build)
         return models.ok({"id": mid})
 
     # -- ② remember ---------------------------------------------------------
@@ -342,28 +366,32 @@ class Engine:
             if action == "duplicate":
                 return models.ok({"action": "duplicate", "id": decision["id"], "root_id": None, "version": None, "status": "active"})
 
-            mid = _new_id()
-            if action in ("versioned", "inactive"):
-                # Defer versioning to the async LLM review. Store the new item as
-                # `inactive` and record the earlier candidate it resembles/conflicts with
-                # (conflict_of). Nothing is superseded here; the review task decides
-                # later whether it's really the same matter and should bump the version.
-                root_id = mid
-                version = 1
-                status = "inactive"
-                conflict_of = decision.get("conflict_of")
-                action = "inactive"  # report what actually happened (deferred to review)
-            else:  # created
-                root_id = mid
-                version = 1
-                status = "active"
-                conflict_of = None
+            def _build(mid):
+                if action in ("versioned", "inactive"):
+                    # Defer versioning to the async LLM review. Store the new item as
+                    # `inactive` and record the earlier candidate it resembles/conflicts with
+                    # (conflict_of). Nothing is superseded here; the review task decides
+                    # later whether it's really the same matter and should bump the version.
+                    root_id = mid
+                    version = 1
+                    status = "inactive"
+                    conflict_of = decision.get("conflict_of")
+                    act = "inactive"  # report what actually happened (deferred to review)
+                else:  # created
+                    root_id = mid
+                    version = 1
+                    status = "active"
+                    conflict_of = None
+                    act = action
 
-            self._insert(cur, mid, root_id, version, scope, kind, tags, title, content,
-                         importance, source, status, h, conflict_of,
-                         now, valid_from, valid_until, emb, cluster_stats=topic_mod.UNCLUSTERED,
-                         episode_id=episode_id, normalized_text=norm)
-            self._assign_cluster(cur, mid, emb, now)
+                self._insert(cur, mid, root_id, version, scope, kind, tags, title, content,
+                             importance, source, status, h, conflict_of,
+                             now, valid_from, valid_until, emb, cluster_stats=topic_mod.UNCLUSTERED,
+                             episode_id=episode_id, normalized_text=norm)
+                self._assign_cluster(cur, mid, emb, now)
+                return act, mid, root_id, version, status, conflict_of
+
+            action, mid, root_id, version, status, conflict_of = self._insert_with_id_retry(_build)
             warn = self._capacity_warn(cur)
         return models.ok({"action": action, "id": mid, "root_id": root_id, "version": version,
                           "status": status, "conflict_of": conflict_of, "warning": warn})
@@ -1091,26 +1119,29 @@ class Engine:
         norm = self._normalize(new_title, new_content, now)
         if norm:
             emb = self._embed_text(norm, new_title)
-        new_id = _new_id()
-        with write_tx(self.conn) as cur:
-            prev = cur.execute("SELECT MAX(version) AS v FROM memories WHERE root_id=?", (base["root_id"],)).fetchone()
-            version = (prev["v"] or 1) + 1
-            new_tags = tags if tags is not None else base["tags"]
-            # update also refreshes the clock: new version is active & new (freshness=1),
-            # and for time-limited kinds push valid_until to now + TTL.
-            if valid_until is not None:
-                new_vu = valid_until
-            else:
-                _re = refresh_expiry(base["kind"], ttl_days=self.ttl_days)
-                new_vu = _re if _re is not None else base["valid_until"]
-            self._insert(cur, new_id, base["root_id"], version, base["scope"], base["kind"],
-                         new_tags, new_title, new_content,
-                         importance if importance is not None else base["importance"],
-                         base["source"], "active",
-                         content_hash(new_content), None, now,
-                         base["valid_from"], new_vu, emb, normalized_text=norm)
-            cur.execute("UPDATE memories SET status='superseded', superseded_by=? WHERE id=?", (new_id, id))
-            self._prune_history(cur, base["root_id"])
+        def _build(new_id):
+            with write_tx(self.conn) as cur:
+                prev = cur.execute("SELECT MAX(version) AS v FROM memories WHERE root_id=?", (base["root_id"],)).fetchone()
+                version = (prev["v"] or 1) + 1
+                new_tags = tags if tags is not None else base["tags"]
+                # update also refreshes the clock: new version is active & new (freshness=1),
+                # and for time-limited kinds push valid_until to now + TTL.
+                if valid_until is not None:
+                    new_vu = valid_until
+                else:
+                    _re = refresh_expiry(base["kind"], ttl_days=self.ttl_days)
+                    new_vu = _re if _re is not None else base["valid_until"]
+                self._insert(cur, new_id, base["root_id"], version, base["scope"], base["kind"],
+                             new_tags, new_title, new_content,
+                             importance if importance is not None else base["importance"],
+                             base["source"], "active",
+                             content_hash(new_content), None, now,
+                             base["valid_from"], new_vu, emb, normalized_text=norm)
+                cur.execute("UPDATE memories SET status='superseded', superseded_by=? WHERE id=?", (new_id, id))
+                self._prune_history(cur, base["root_id"])
+            return new_id, version
+
+        new_id, version = self._insert_with_id_retry(_build)
         return models.ok({"action": "versioned", "id": new_id, "root_id": base["root_id"], "version": version})
 
     # -- ④ forget (soft delete) --------------------------------------------
@@ -1646,8 +1677,12 @@ class Engine:
                 cur.execute("DELETE FROM memories_fts")
                 cur.execute("DELETE FROM memories")
             for it in clean:
+                explicit = bool(it["id"])
                 mid = it["id"] or _new_id()
                 exists = cur.execute("SELECT 1 FROM memories WHERE id=?", (mid,)).fetchone()
+                while exists and not explicit:
+                    mid = _new_id()  # auto-generated id collided: pick another, never drop the import
+                    exists = cur.execute("SELECT 1 FROM memories WHERE id=?", (mid,)).fetchone()
                 if exists:
                     skipped += 1
                     continue
