@@ -118,17 +118,14 @@ def _resolve(token: str, base: _dt.date) -> str | None:
         mon, _sun = _week_segment(base, prefix)
         return "(" + _fmt(mon + _dt.timedelta(days=x - 1)) + ")"
 
-    # bare 周X / 星期X -> NEAREST occurrence of that weekday (prefer the closest day,
-    # forward or back). E.g. "周一" said on Saturday (2026-05-02) = the coming Monday
-    # 2026-05-04, NOT the already-passed Monday of the current week. Annotating a wrong
-    # past date is worse than none, so ambiguity resolves to the nearest day.
+    # bare 周X / 星期X -> THIS WEEK (Monday-based), same day-of-week in the base's week.
+    # e.g. "周一" -> the Monday of the week containing the base date. Consistent regardless
+    # of which weekday the base falls on (avoids the old "nearest day" flipping past/future
+    # and giving two different dates for the same '周一' said on consecutive days).
     m = re.match(r"(?:周|星期)(" + _WEEKDAY + ")$", token)
     if m:
         x = _CN_NUM[m.group(1)]
-        delta = (x - 1 - base.weekday()) % 7
-        if delta > 3:
-            delta -= 7
-        return "(" + _fmt(base + _dt.timedelta(days=delta)) + ")"
+        return "(" + _fmt(_monday(base) + _dt.timedelta(days=x - 1)) + ")"
 
     # week segment 上周/下周/这周 (range)
     if re.fullmatch(_WEEK_PREFIX, token):
