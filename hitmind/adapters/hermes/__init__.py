@@ -2,7 +2,7 @@
 
 Maps the Hermes lifecycle onto the host-agnostic core Engine:
 - initialize() binds db_path from hermes_home (never hardcode ~/.hermes)
-- prefetch()  -> core.recall() -> title-card block (bounded)
+- prefetch()  -> core.recall() -> memory excerpts block `[id] (kind)[@date]：content` (bounded)
 - sync_turn() -> auto per-turn capture (mirrors Mnemosyne: filter machine envelopes,
   store user/optional assistant past length thresholds, topic-tagged)
 - get_tool_schemas()/handle_tool_call() -> expose the 9 memory verbs
@@ -342,8 +342,9 @@ class HitMindMemoryProvider(MemoryProvider):  # type: ignore[misc]
             if not mid:
                 continue  # skip malformed rows instead of one bad item killing the batch
             kind = m.get("kind") or ""
-            title = m.get("title") or (m.get("content") or "")[:40]
-            line = f"- [{mid}] ({kind}) {title}".replace("\n", " ").strip()
+            created = (m.get("created_at") or "")[:10]
+            content = (m.get("content") or "").replace("\n", " ").strip()
+            line = f"[{mid}] ({kind})[@{created}]：{content}".strip()
             lines.append(line)
         # IMPORTANT: the host (agent.memory_context.build_memory_context_block) OWNS the
         # <memory-context> fence + system note and *strips* any fence a provider adds — so

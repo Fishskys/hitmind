@@ -23,7 +23,7 @@
   topic, cluster_id, cluster_stats, pending_since, episode_id, normalized_text }
 ```
 `recall` 结果额外带 `scores: { dense, bm25, rel_norm, freshness, final }`（启用 rerank 时另带 `rerank`）；命中带 `episode_id` 时附 `episode_summary`。
-自动注入（宿主 prefetch）只取**标题卡**子集：`{ id, title, kind, tags, updated_at, freshness }`。
+自动注入（宿主 prefetch）每行渲染为 `[id] (kind)[@created_at日期]：正文`（含 `id/kind/created_at/content`，受 token 预算）。
 
 ## 3. 动词 spec
 
@@ -70,7 +70,7 @@
 | `is_available` | Engine 可导入且 `db_path` 可解析 |
 | `initialize(session_id, hermes_home, agent_context, ...)` | 打开 `Engine(db_path=$HERMES_HOME/hitmind/data/hitmind.db)`，`agent_id` 取自身身份；非 primary 上下文只读/跳过写；注册闲时任务并启动后台线程 |
 | `system_prompt_block` | 静态 guide（标题卡/工具用法），无动态内容 |
-| `prefetch(query)` | `recall(query, top_k, filters=active+scope)` → **裸**标题卡列表（每行 `- [id] (kind) title`，受 token 预算），有超时上限；**不加 `<memory-context>` 围栏**（由宿主 `build_memory_context_block` 统一包裹，provider 预加会被剥掉并告警）；超时/不可用走 BM25-only 或返回空 |
+| `prefetch(query)` | `recall(query, top_k, filters=active+scope)` → **裸**记忆片段列表（每行 `[id] (kind)[@created_at日期]：正文`，受 token 预算），有超时上限；**不加 `<memory-context>` 围栏**（由宿主 `build_memory_context_block` 统一包裹，provider 预加会被剥掉并告警）；超时/不可用走 BM25-only 或返回空 |
 | `queue_prefetch` | 预热查询向量/缓存（可为 no-op） |
 | `sync_turn(user, assistant, messages)` | **不写记忆**（热路径零写）；仅 `note_activity` + 唤醒后台线程；压缩时由 `post_compaction` 触发 `ingest_compaction` |
 | `get_tool_schemas` | 默认暴露 9 个：②③④⑤⑥⑦⑧⑨⑩（**不含 capture**；`consolidate` 为派发专用、不暴露）；`export`/`import` 仅显式开关时额外追加 |
