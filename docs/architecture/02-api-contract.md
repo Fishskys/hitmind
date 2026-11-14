@@ -20,7 +20,7 @@
   importance, source, status,
   created_at, updated_at, last_recalled_at, recalled_times,
   valid_from, valid_until, superseded_by, conflict_of,
-  topic, cluster_id, cluster_stats, pending_since, episode_id, normalized_text }
+  topic, cluster_id, cluster_stats, pending_since, episode_id }
 ```
 `recall` 结果额外带 `scores: { dense, bm25, rel_norm, freshness, final }`（启用 rerank 时另带 `rerank`）；命中带 `episode_id` 时附 `episode_summary`。
 自动注入（宿主 prefetch）只取**标题卡**子集：`{ id, title, kind, tags, updated_at, freshness }`。

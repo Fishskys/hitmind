@@ -69,7 +69,6 @@ def _row_to_memory(r: Any) -> dict:
         "cluster_id": r["cluster_id"],
         "cluster_stats": r["cluster_stats"],
         "episode_id": r["episode_id"],
-        "normalized_text": (r["normalized_text"] if "normalized_text" in r.keys() else None),
     }
 
 
@@ -1145,7 +1144,7 @@ class Engine:
             docs = []
             for _f, m in pool:
                 t = m.get("title")
-                c = m.get("normalized_text") or m.get("content") or ""
+                c = m.get("content") or ""
                 docs.append(f"{t}：{c}" if t else c)
             pairs = rk.rerank(query, docs)
         except Exception:

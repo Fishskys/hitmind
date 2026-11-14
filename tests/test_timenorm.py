@@ -15,12 +15,16 @@ def test_normalize_basic_offsets():
     assert "2026-07-01" in normalize_text("答应下周三前寄画册", "2026-06-22")
 
 
-def test_normalize_bare_weekday_nearest():
-    # bare "周X" resolves to the NEAREST such weekday (forward or back), never a wrong
-    # far-in-the-past date. Sat 2026-05-02 saying "周一" = coming Monday 2026-05-04.
-    assert "2026-05-04" in normalize_text("周一送的合影", "2026-05-02")
-    # Wed 2026-05-06 saying "周一" = the just-passed Monday 2026-05-04 (nearest, back).
+def test_normalize_bare_weekday_this_week():
+    # bare "周X/星期X" -> the SAME weekday of the base's (Monday-based) week.
+    # Sat 2026-05-02 -> that week's Monday = 2026-04-27.
+    assert "2026-04-27" in normalize_text("周一送的合影", "2026-05-02")
+    # Wed 2026-05-06 -> that week's Monday = 2026-05-04.
     assert "2026-05-04" in normalize_text("周一开过会", "2026-05-06")
+    # consistency: the same "周一" said on consecutive days (Thu 05-21 / Fri 05-22) must
+    # resolve to the SAME date (2026-05-18), not flip between past/future.
+    assert "2026-05-18" in normalize_text("周一那批黄油", "2026-05-21")
+    assert "2026-05-18" in normalize_text("周一那批黄油", "2026-05-22")
     # prefixed forms keep their exact week meaning: 下周二 on Wed 5-06 = 2026-05-12
     assert "2026-05-12" in normalize_text("下周二去", "2026-05-06")
 
@@ -101,9 +105,10 @@ def test_engine_recall_finds_by_absolute_date(tmp_path):
         res = e.recall("芸青生日是什么时候 2026-06-05", top_k=5)["data"]["results"]
         assert res, "expected a hit"
         top = res[0]
+        # normalized_text is an internal INDEX column: it makes the absolute date
+        # searchable, but is NOT surfaced in recall results and does NOT leak into answers.
         assert "芸青生日" in (top.get("content") or "")
-        # result surfaces normalized_text so downstream (answerer) sees the absolute date
-        assert top.get("normalized_text") and "2026-06-05" in top["normalized_text"]
+        assert "normalized_text" not in top
     finally:
         e.close()
 

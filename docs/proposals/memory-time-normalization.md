@@ -68,7 +68,7 @@
 
 | 分组 | 键 | 默认 | 说明 |
 |---|---|---|---|
-| 抽取 | `time_normalize` | true | 相对日期归一开关（写入时按逻辑时间补绝对日期；原文保留，另存 `normalized_text` 并参与检索） |
+| 抽取 | `time_normalize` | true | 相对日期归一开关（写入时按逻辑时间补绝对日期；原文保留，另存 `normalized_text` 仅用于检索索引、不注入作答） |
 
 > `time_index` 随 §4 一并延后，届时再进配置面。
 
@@ -101,7 +101,7 @@
 - **模块**：`hitmind/core/timenorm.py`（纯 stdlib）。确定性词表→补绝对日期；保留原词；模糊词不动；异常回退原文。
 - **存储**：`memories.normalized_text`（`_add_column` 幂等加列，兼容存量库、不重建）。`content` 原文永不改写。
 - **写入**：`capture()/remember()/update()` 以逻辑时间 `created_at` 为基准生成 `normalized_text`。
-- **检索**：向量与 FTS 索引文本改用 `normalized_text`（`6月5日` 与 `上周五` 均可命中）；`embed_documents` 仍只嵌正文、`title` 走元数据（与基线一致，保证 A/B 干净）；召回结果带 `normalized_text` 供作答注入。
+- **检索**：向量与 FTS 索引文本改用 `normalized_text`（`6月5日` 与 `上周五` 均可命中）；`embed_documents` 仍只嵌正文、`title` 走元数据（与基线一致，保证 A/B 干净）。**`normalized_text` 仅作内部检索索引，不随召回结果返回、不进入作答上下文**——避免把绝对日期喂给作答模型导致「编造日期」。
 - **规则要点**：带前缀（上周X/这周X/下周X/上周/下周…）按精确周/月/季/年区间；**裸"周X/星期X"取最近的那一天**（如周六说"周一"= 即将到来的周一，避免算成已过去的错误日期）。
 - **配置**：`time_normalize`（默认 true，记忆抽取分组；env `HITMIND_TIME_NORMALIZE`）；关闭则 `normalized_text` 为 NULL。
 - **测试**：`tests/test_timenorm.py`（偏移/区间/最近周X/保留原词/模糊词/存库/召回/关闭）。

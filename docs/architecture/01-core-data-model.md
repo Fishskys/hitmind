@@ -71,7 +71,7 @@
 | `cluster_stats` | TEXT | unclustered / pre_clustered / clustered |
 | `pending_since` | TEXT NULL | 未整理自动捕获行的时间戳（供 TTL 清扫） |
 | `episode_id` | TEXT NULL | 指向 `episodes.id`（上下文出处） |
-| `normalized_text` | TEXT NULL | 写入时按逻辑时间归一后的正文（相对日期补绝对日期，如 `上周五(2026-06-05)`）；原文 `content` 不变；用于向量/FTS/作答注入。关闭 `time_normalize` 时为 NULL |
+| `normalized_text` | TEXT NULL | 写入时按逻辑时间归一后的正文（相对日期补绝对日期，如 `上周五(2026-06-05)`）；原文 `content` 不变；**仅作内部检索索引**（FTS/向量），不随结果返回、不进入作答上下文。关闭 `time_normalize` 时为 NULL |
 
 **辅助表**
 - `memories_fts`：对 `title + (normalized_text or content)` 做 CJK n-gram 分词建 FTS5（检索脊柱）。归一开启时索引归一文本，使"6月5日"与"上周五"都能命中。
