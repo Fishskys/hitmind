@@ -105,10 +105,9 @@ def test_engine_recall_finds_by_absolute_date(tmp_path):
         res = e.recall("芸青生日是什么时候 2026-06-05", top_k=5)["data"]["results"]
         assert res, "expected a hit"
         top = res[0]
-        # normalized_text is an internal INDEX column: it makes the absolute date
-        # searchable, but is NOT surfaced in recall results and does NOT leak into answers.
         assert "芸青生日" in (top.get("content") or "")
-        assert "normalized_text" not in top
+        # normalized_text IS surfaced in recall results (reverted): index + downstream.
+        assert top.get("normalized_text") and "2026-06-05" in top["normalized_text"]
     finally:
         e.close()
 

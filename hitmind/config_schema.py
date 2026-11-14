@@ -50,7 +50,7 @@ CONFIG_SCHEMA = ProviderConfigSchema(
         ProviderField(key="memory_max_chars", label="单条记忆最大长度（字符）", kind=KIND_NUMBER, default="1024",
                       group=G_EXTRACT, description="每条记忆内容的最大字符数；该限制会动态写入 LLM 提示词，提示超出时拆分为多条记忆（超出硬上限仍会截断；0=不限）。"),
         ProviderField(key="time_normalize", label="时间归一化（相对日期→绝对日期）", kind=KIND_BOOL, default="true",
-                      group=G_EXTRACT, description="写入时把“昨天/下周三”等按逻辑时间补成绝对日期（原文保留，另存 normalized_text 仅用于检索索引，不进入作答上下文）；确定性、零 LLM。"),
+                      group=G_EXTRACT, description="写入时把“昨天/下周三”等按逻辑时间补成绝对日期（原文保留，另存 normalized_text 参与检索并随结果返回）；确定性、零 LLM。"),
         ProviderField(key="skip_contexts", label="跳过捕获的上下文", kind=KIND_TEXT,
                       default="cron,subagent,flush,background,skill_loop", group=G_EXTRACT,
                       description="逗号分隔；这些上下文中的消息不会被自动捕获。"),
