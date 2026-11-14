@@ -91,7 +91,7 @@ def test_prefetch_returns_bare_context_without_fence():
     out = prov.prefetch("配色偏好", session_id="sess-pf")
     assert out, "prefetch should return the recalled memory"
     assert "<memory-context>" not in out and "</memory-context>" not in out
-    assert "- [mem_" in out
+    assert "- [m_" in out
 
     # If the host sanitizer is importable, prove it leaves our output untouched
     # (sanitized == raw  <=>  no 'pre-wrapped context; stripped' warning).

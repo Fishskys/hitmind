@@ -44,13 +44,8 @@ def _now() -> str:
 
 
 def _new_id() -> str:
-    ts = int(time.time() * 1000)
-    base = ""
-    for _ in range(6):
-        base += _B32[ts & 31]
-        ts >>= 5
-    rand = "".join(secrets.choice(_B32) for _ in range(20))
-    return "mem_" + (base[::-1] + rand)
+    """Short opaque id: ``m_`` + 6 base32 chars (~30 bits)."""
+    return "m_" + "".join(secrets.choice(_B32) for _ in range(6))
 
 
 def _row_to_memory(r: Any) -> dict:
@@ -787,7 +782,7 @@ class Engine:
         prev = self.last_episode(session_id)
         with write_tx(self.conn) as cur:
             if prev is None:
-                eid = "ep_" + _new_id()[4:]
+                eid = "ep_" + _new_id()[2:]
                 cur.execute(
                     """INSERT INTO episodes(id, agent_id, scope, session_id, mode, trigger,
                        summary, summary_kind, message_id_range, revision, status,
