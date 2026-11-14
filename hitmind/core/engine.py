@@ -44,8 +44,8 @@ def _now() -> str:
 
 
 def _new_id() -> str:
-    """Short opaque id: ``m_`` + 6 base32 chars (~30 bits)."""
-    return "m_" + "".join(secrets.choice(_B32) for _ in range(6))
+    """Short opaque id: ``m_`` + 8 base32 chars (~40 bits)."""
+    return "m_" + "".join(secrets.choice(_B32) for _ in range(8))
 
 
 def _row_to_memory(r: Any) -> dict:
