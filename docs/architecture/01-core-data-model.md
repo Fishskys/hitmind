@@ -60,7 +60,7 @@
 | `dedup_hash` | TEXT | 规范化内容哈希，精确去重 |
 | `superseded_by` | TEXT NULL | 被哪个新版本取代（旧版填；active 恒为 NULL） |
 | `conflict_of` | TEXT NULL | 冲突对端 id（新条 `inactive` 指向旧条） |
-| `created_at` | TIMESTAMP | 创建时间（本版本写入；同时是时间归一的逻辑基准） |
+| `created_at` | TIMESTAMP | 创建时间（本版本写入；同时是时间归一的逻辑基准）；秒级 ISO-8601、带本地偏移，如 `2026-11-12T15:22:48+08:00`（默认 +08:00，见 `tz_hours`） |
 | `updated_at` | TIMESTAMP | 最近更新时间 |
 | `last_recalled_at` | TIMESTAMP NULL | 最近被召回时间 |
 | `recalled_times` | INTEGER | 被召回次数 |

@@ -7,7 +7,26 @@ All knobs are module DEFAULTS that the Engine may override per-config (desktop p
 
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime, timedelta, timezone
+
+# Default display/logical timezone offset in hours (UTC+8 = Asia/Shanghai).
+DEFAULT_TZ_HOURS = 8
+
+
+def _tzinfo(tz_hours: float | None = None) -> timezone:
+    h = DEFAULT_TZ_HOURS if tz_hours is None else tz_hours
+    return timezone(timedelta(hours=float(h)))
+
+
+def now_tz(tz_hours: float | None = None) -> datetime:
+    """Current time as a tz-aware datetime in the configured offset (default UTC+8)."""
+    return datetime.now(_tzinfo(tz_hours))
+
+
+def _iso_seconds(dt: datetime, tz_hours: float | None = None) -> str:
+    """ISO-8601 with second precision, keeping the local offset (e.g. 2026-11-12T15:22:48+08:00)."""
+    return dt.astimezone(_tzinfo(tz_hours)).isoformat(timespec="seconds")
+
 
 # half-life in days per kind (initial values; calibrate with bench)
 HALF_LIFE_DAYS = {"persona": 180, "fact": 180, "event": 14, "procedure": 60}
@@ -71,17 +90,18 @@ def freshness(updated_at: str | None, kind: str, now: datetime | None = None,
     return 0.5 ** (age_days / hl)
 
 
-def refresh_expiry(kind: str, now: datetime | None = None, ttl_days: dict | None = None) -> str | None:
+def refresh_expiry(kind: str, now: datetime | None = None, ttl_days: dict | None = None,
+                   tz_hours: float | None = None) -> str | None:
     """New expiry when a time-limited memory is recalled/updated: now + kind TTL.
 
     Returns None for kinds without a default TTL (never expire), so there is nothing to
     refresh. ``ttl_days`` (kind->days|None) overrides the module default when provided.
     """
-    now = now or datetime.now(UTC)
+    now = now or now_tz(tz_hours)
     ttl = _ttl(ttl_days, kind)
     if ttl is None:
         return None
-    return (now + timedelta(days=ttl)).isoformat()
+    return _iso_seconds(now + timedelta(days=ttl), tz_hours)
 
 
 def final_score(rel_norm: float, importance: float, fresh: float,
@@ -95,13 +115,14 @@ def final_score(rel_norm: float, importance: float, fresh: float,
     return w_rel * rel_norm + w_imp * importance + fres_w * fresh
 
 
-def default_valid_until(kind: str, created_at: str | None, ttl_days: dict | None = None) -> str | None:
+def default_valid_until(kind: str, created_at: str | None, ttl_days: dict | None = None,
+                        tz_hours: float | None = None) -> str | None:
     """Return an ISO expiry for kinds that have a default TTL, else None."""
     ttl = _ttl(ttl_days, kind)
     if ttl is None:
         return None
-    base = _parse(created_at) or datetime.now(UTC)
-    return (base + timedelta(days=ttl)).isoformat()
+    base = _parse(created_at) or now_tz(tz_hours)
+    return _iso_seconds(base + timedelta(days=ttl), tz_hours)
 
 
 def is_expired(valid_until: str | None, now: datetime | None = None) -> bool:

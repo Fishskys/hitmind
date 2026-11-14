@@ -40,8 +40,10 @@ def _merge_kind_importance(overrides: dict | None) -> dict:
     return out
 
 
-def _now() -> str:
-    return datetime.now(UTC).isoformat()
+def _now(tz_hours: float = lifecycle_mod.DEFAULT_TZ_HOURS) -> str:
+    """Current logical timestamp: second-precision, 'T'-separated, configured offset
+    (default +08:00), e.g. ``2026-11-12T15:22:48+08:00``."""
+    return lifecycle_mod._iso_seconds(lifecycle_mod.now_tz(tz_hours), tz_hours)
 
 
 def _new_id() -> str:
@@ -114,7 +116,8 @@ class Engine:
                  rel_weight: float | None = None,
                  importance_weight: float | None = None,
                  capacity_warn: int | None = None,
-                 time_normalize: bool | None = None):
+                 time_normalize: bool | None = None,
+                 tz_hours: float | None = None):
         self.db_path = db_path
         self.agent_id = agent_id
         self.embedder: Embedder = embedder or NullEmbedder()
@@ -185,6 +188,13 @@ class Engine:
         self.rel_weight = float(_cfg_or(rel_weight, lifecycle_mod.W_REL))
         self.importance_weight = float(_cfg_or(importance_weight, lifecycle_mod.W_IMP))
         self.capacity_warn = int(_cfg_or(capacity_warn, lifecycle_mod.CAPACITY_WARN))
+        # timezone offset (hours) for the logical/display timestamps written to the store.
+        # Single-number config, default +8 (Asia/Shanghai). Stored timestamps are
+        # second-precision, 'T'-separated, and carry this offset (e.g. ...T15:22:48+08:00).
+        self.tz_hours = float(
+            tz_hours if tz_hours is not None
+            else os.environ.get("HITMIND_TZ_HOURS", str(lifecycle_mod.DEFAULT_TZ_HOURS))
+        )
         # idle/background tasks (chat batch, topic aggregation, ...). Registered by the
         # adapter; run by an idle runner. Never on the hot path.
         self._pending_tasks: dict[str, Any] = {}
@@ -284,7 +294,7 @@ class Engine:
         content = self._cap_chars(content.strip())  # enforce configurable length limit
         if importance is None:
             importance = self.kind_importance.get(kind, 0.5)  # per-kind default importance
-        now = created_at or _now()
+        now = created_at or _now(self.tz_hours)
         h = content_hash(content)
         if skip_if_duplicate:
             scopewhere, scopeparams = self._scope_sql()
@@ -308,7 +318,7 @@ class Engine:
                 self._insert(cur, mid, mid, 1, scope, kind, tags or [], title, content,
                              importance, source, "active",
                              h, None, now, None,
-                             default_valid_until(kind, now, self.ttl_days), emb, tp,
+                             default_valid_until(kind, now, self.ttl_days, tz_hours=self.tz_hours), emb, tp,
                              pending_since, None, topic_mod.UNCLUSTERED, normalized_text=norm)
                 self._assign_cluster(cur, mid, emb, now)
             return mid
@@ -334,8 +344,8 @@ class Engine:
             importance = self.kind_importance.get(kind, 0.5)  # per-kind default importance
         tags = tags or []
         cand = {"title": title, "content": content}
-        now = _now()
-        valid_until = valid_until or default_valid_until(kind, now, self.ttl_days)
+        now = _now(self.tz_hours)
+        valid_until = valid_until or default_valid_until(kind, now, self.ttl_days, tz_hours=self.tz_hours)
         h = content_hash(content)
 
         # pre-check (outside lock) to avoid useless embedding work
@@ -577,7 +587,7 @@ class Engine:
             if len(cids) >= topic_mod.CONSOLIDATE_BATCH_MAX:
                 break
         finalized = rejected = failed = 0
-        now = _now()
+        now = _now(self.tz_hours)
         for cid in cids:
             members = self.conn.execute(
                 "SELECT id, content FROM memories WHERE cluster_id=? AND status='active' "
@@ -697,14 +707,14 @@ class Engine:
                 # nothing live to compare -> independent memory; activate as-is
                 with write_tx(self.conn) as cur:
                     cur.execute("UPDATE memories SET status='active', updated_at=? WHERE id=? AND status='inactive'",
-                                (_now(), r["id"]))
+                                (_now(self.tz_hours), r["id"]))
                 activated += 1
                 continue
             verdict = self._llm.review_verdict(cand, prior["content"] or "")
             if not isinstance(verdict, dict):
                 failed += 1  # leave inactive, retry next pass
                 continue
-            now = _now()
+            now = _now(self.tz_hours)
             if verdict.get("same") and verdict.get("update"):
                 # new version of the prior's root
                 rid = prior["root_id"] or prior["id"]
@@ -755,14 +765,15 @@ class Engine:
         """
         try:
             with write_tx(self.conn) as cur:
-                now = _now()
+                now = _now(self.tz_hours)
                 cur.execute(
                     "UPDATE memories SET status='expired', updated_at=? "
                     "WHERE status='active' AND valid_until IS NOT NULL AND valid_until <= ?",
                     (now, now),
                 )
                 if self.raw_ttl_days:
-                    cutoff = (datetime.now(UTC) - timedelta(days=self.raw_ttl_days)).isoformat()
+                    cutoff = lifecycle_mod._iso_seconds(
+                        lifecycle_mod.now_tz(self.tz_hours) - timedelta(days=self.raw_ttl_days), self.tz_hours)
                     cur.execute(
                         "UPDATE memories SET status='expired', updated_at=? "
                         "WHERE status='active' AND pending_since IS NOT NULL AND pending_since <= ?",
@@ -804,8 +815,9 @@ class Engine:
         if not allow_empty and not (summary or "").strip():
             raise models.HitMindError(models.INVALID_ARGUMENT, "empty episode summary")
         days = self.episode_ttl_days if ttl_days is None else int(ttl_days)
-        now = _now()
-        valid_until = (datetime.now(UTC) + timedelta(days=days)).isoformat() if days else None
+        now = _now(self.tz_hours)
+        valid_until = lifecycle_mod._iso_seconds(
+            lifecycle_mod.now_tz(self.tz_hours) + timedelta(days=days), self.tz_hours) if days else None
         rng = json.dumps(message_id_range) if message_id_range else None
         prev = self.last_episode(session_id)
         with write_tx(self.conn) as cur:
@@ -906,7 +918,7 @@ class Engine:
     def _touch_session(self, session_id: str, *, last_activity: str | None = None,
                        pending_batch: int | None = None, batch_start: int | None = None,
                        cursor_id: int | None = None, fails: int | None = None) -> None:
-        now = _now()
+        now = _now(self.tz_hours)
         cur = self.session_state(session_id)
         with write_tx(self.conn) as c:
             c.execute(
@@ -936,7 +948,7 @@ class Engine:
         if self.state_source is None or not session_id:
             return models.ok({"skipped": "no_source"})
         st = self.session_state(session_id)
-        now = _now()
+        now = _now(self.tz_hours)
         if not st.get("pending_batch"):
             unprocessed = self.state_source.count_after(session_id, int(st.get("cursor_id") or 0))
             if unprocessed >= 2 * int(self.consolidate_every_turns):
@@ -1060,7 +1072,7 @@ class Engine:
             dt = datetime.fromisoformat(str(last_activity).replace("Z", "+00:00"))
             if dt.tzinfo is None:
                 dt = dt.replace(tzinfo=UTC)
-            return (datetime.now(UTC) - dt).total_seconds() >= self.idle_consolidate_seconds
+            return (lifecycle_mod.now_tz(self.tz_hours) - dt).total_seconds() >= self.idle_consolidate_seconds
         except Exception:
             return True
 
@@ -1115,7 +1127,7 @@ class Engine:
             raise models.HitMindError(models.INVALID_ARGUMENT, "updated content duplicates an existing memory",
                                      {"id": dup["id"]})
         emb = self._embed_doc(new_title, new_content)
-        now = _now()
+        now = _now(self.tz_hours)
         norm = self._normalize(new_title, new_content, now)
         if norm:
             emb = self._embed_text(norm, new_title)
@@ -1129,7 +1141,7 @@ class Engine:
                 if valid_until is not None:
                     new_vu = valid_until
                 else:
-                    _re = refresh_expiry(base["kind"], ttl_days=self.ttl_days)
+                    _re = refresh_expiry(base["kind"], ttl_days=self.ttl_days, tz_hours=self.tz_hours)
                     new_vu = _re if _re is not None else base["valid_until"]
                 self._insert(cur, new_id, base["root_id"], version, base["scope"], base["kind"],
                              new_tags, new_title, new_content,
@@ -1153,7 +1165,7 @@ class Engine:
                 raise models.HitMindError(models.NOT_FOUND, f"memory not found: {id}")
             if row["scope"] == "private" and row["agent_id"] != self.agent_id:
                 raise models.HitMindError(models.FORBIDDEN, "private memory of another agent")
-            cur.execute("UPDATE memories SET status='deleted', updated_at=? WHERE id=?", (_now(), id))
+            cur.execute("UPDATE memories SET status='deleted', updated_at=? WHERE id=?", (_now(self.tz_hours), id))
         return models.ok({"id": id, "status": "deleted"})
 
     # -- ⑤ recall -----------------------------------------------------------
@@ -1196,7 +1208,7 @@ class Engine:
         clauses = ["status='active'", scopewhere]
         params: list[Any] = [*scopeparams]
         # point-in-time validity: hide rows whose valid_until <= as-of time
-        as_of = filters.get("valid_at") or _now()
+        as_of = filters.get("valid_at") or _now(self.tz_hours)
         clauses.append("(valid_until IS NULL OR valid_until > ?)")
         params.append(as_of)
         if filters.get("kind"):
@@ -1243,7 +1255,7 @@ class Engine:
         # tag filter in python (json array)
         want_tags = set(filters.get("tags") or [])
         results = []
-        now_iso = _now()
+        now_iso = _now(self.tz_hours)
         for mid, sc in raw:
             r = self.conn.execute("SELECT * FROM memories WHERE id=?", (mid,)).fetchone()
             if r is None:
@@ -1307,7 +1319,7 @@ class Engine:
                     "SELECT * FROM memories WHERE topic=? AND status='active' "
                     "AND cluster_stats=? AND (valid_until IS NULL OR valid_until > ?) "
                     "ORDER BY updated_at DESC",   # newest first
-                    (tp, topic_mod.CLUSTERED, _now()),
+                    (tp, topic_mod.CLUSTERED, _now(self.tz_hours)),
                 ).fetchall()
                 added = 0
                 for r in extra:
@@ -1331,7 +1343,7 @@ class Engine:
             try:
                 with write_tx(self.conn) as cur:
                     for _f, m in results:
-                        new_vu = refresh_expiry(m["kind"], ttl_days=self.ttl_days)
+                        new_vu = refresh_expiry(m["kind"], ttl_days=self.ttl_days, tz_hours=self.tz_hours)
                         if new_vu is not None:
                             cur.execute(
                                 "UPDATE memories SET last_recalled_at=?, "
@@ -1420,7 +1432,7 @@ class Engine:
                 raise models.HitMindError(models.NOT_FOUND, f"memory not found: {id}")
             if row["status"] != "inactive":
                 raise models.HitMindError(models.INVALID_ARGUMENT, "only inactive memories can be resolved")
-            now = _now()
+            now = _now(self.tz_hours)
             if resolution == "accept":
                 cur.execute("UPDATE memories SET status='active', updated_at=? WHERE id=?", (now, id))
                 return models.ok({"id": id, "status": "active"})
@@ -1520,7 +1532,7 @@ class Engine:
             cur.execute(
                 "UPDATE memories SET topic=?, cluster_stats=?, updated_at=? "
                 "WHERE cluster_id=? AND status='active'",
-                (topic.strip(), topic_mod.CLUSTERED, _now(), cluster_id),
+                (topic.strip(), topic_mod.CLUSTERED, _now(self.tz_hours), cluster_id),
             )
             # apply LLM corrections (index -> members[index]['id'])
             if members and corrections:
@@ -1553,14 +1565,14 @@ class Engine:
                         cur.execute(
                             "UPDATE memories SET status='superseded', updated_at=? "
                             "WHERE id=? AND status='active'",
-                            (_now(), old),
+                            (_now(self.tz_hours), old),
                         )
                     else:
                         # fallback: supersede an active same-text duplicate (not self)
                         cur.execute(
                             "UPDATE memories SET status='superseded', updated_at=? "
                             "WHERE dedup_hash=? AND status='active' AND id<>? AND cluster_id=?",
-                            (_now(), row["dedup_hash"], target, cluster_id),
+                            (_now(self.tz_hours), row["dedup_hash"], target, cluster_id),
                         )
                     # 2) stamp the correction note onto the newer memory (survives recall)
                     newer = row["content"]
@@ -1686,7 +1698,7 @@ class Engine:
                 if exists:
                     skipped += 1
                     continue
-                now = _now()
+                now = _now(self.tz_hours)
                 cur.execute(
                     "INSERT INTO memories (id, root_id, version, agent_id, scope, kind, tags, title, "
                     "content, search_text, importance, source, status, dedup_hash, superseded_by, "

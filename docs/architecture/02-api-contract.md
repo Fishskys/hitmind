@@ -6,8 +6,8 @@
 
 ## 1. 通用约定
 
-- **ID**：`mem_<26位小写base32>`（ULID 风格，时间有序）；版本行各自 `id` 不同，共享 `root_id`。
-- **时间**：一律 ISO-8601 UTC 字符串。
+- **ID**：`m_<8位小写base32>`（约 40 bit，10 字符）；版本行各自 `id` 不同，共享 `root_id`。碰撞时自动换 id 重试，绝不覆盖旧行。
+- **时间**：一律秒级 ISO-8601 字符串，`T` 分隔，带本地时区偏移（默认 `+08:00`，由配置 `tz_hours` 决定），如 `2026-11-12T15:22:48+08:00`。
 - **返回信封**：成功 `{"ok": true, "data": <T>}`；失败 `{"ok": false, "error": {"code","message","detail"}}`。Python 层可 `raise HitMindError(code,...)`，由 adapter 统一转信封。
 - **`scope`**：`shared`(默认) / `private`；`private` 仅写者 `agent_id` 可读写，他人调用返回 `FORBIDDEN`。
 - **`agent_id`**：字符串；宿主绑定默认自身身份，MCP 由 `--agent-id` / `HITMIND_AGENT_ID` 提供。

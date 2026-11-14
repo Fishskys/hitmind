@@ -51,6 +51,8 @@ CONFIG_SCHEMA = ProviderConfigSchema(
                       group=G_EXTRACT, description="每条记忆内容的最大字符数；该限制会动态写入 LLM 提示词，提示超出时拆分为多条记忆（超出硬上限仍会截断；0=不限）。"),
         ProviderField(key="time_normalize", label="时间归一化（相对日期→绝对日期）", kind=KIND_BOOL, default="true",
                       group=G_EXTRACT, description="写入时把“昨天/下周三”等按逻辑时间补成绝对日期（原文保留，另存 normalized_text 参与检索并随结果返回）；确定性、零 LLM。"),
+        ProviderField(key="tz_hours", label="时间戳时区（UTC 偏移小时）", kind=KIND_NUMBER, default="8",
+                      group=G_EXTRACT, description="写入记忆时间戳所用的本地时区偏移（单数字，默认 8 即东八区/上海）。时间戳为秒级、T 分隔并带该偏移，如 2026-11-12T15:22:48+08:00。"),
         ProviderField(key="skip_contexts", label="跳过捕获的上下文", kind=KIND_TEXT,
                       default="cron,subagent,flush,background,skill_loop", group=G_EXTRACT,
                       description="逗号分隔；这些上下文中的消息不会被自动捕获。"),
