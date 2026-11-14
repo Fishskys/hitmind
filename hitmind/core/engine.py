@@ -100,7 +100,7 @@ class Engine:
             if s in ("", "auto"):
                 continue
             try:
-                return float(s)
+                return lifecycle_mod.parse_tz_hours(s)  # supports 5.5 / "5:30" / "-3:30"
             except ValueError:
                 continue
         return lifecycle_mod.system_tz_hours()

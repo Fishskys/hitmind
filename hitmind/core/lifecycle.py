@@ -7,6 +7,7 @@ All knobs are module DEFAULTS that the Engine may override per-config (desktop p
 
 from __future__ import annotations
 
+import re
 from datetime import UTC, datetime, timedelta, timezone
 
 # Default display/logical timezone offset in hours (UTC+8 = Asia/Shanghai).
@@ -17,7 +18,7 @@ def system_tz_hours() -> float:
     """Read the OS local timezone offset (hours) at call time — zero config, no deps.
 
     Uses ``datetime.now().astimezone()``, which consults the process TZ / the system
-    zoneinfo (e.g. Asia/Shanghai -> +8.0). Falls back to +8 on any error.
+    zoneinfo (e.g. Asia/Shanghai -> +8.0, Asia/Kolkata -> +5.5). Falls back to +8 on error.
     """
     try:
         off = datetime.now().astimezone().utcoffset()
@@ -26,6 +27,22 @@ def system_tz_hours() -> float:
     except Exception:
         pass
     return float(DEFAULT_TZ_HOURS)
+
+
+def parse_tz_hours(value) -> float:
+    """Parse a timezone offset spec into fractional hours.
+
+    Accepts a plain number/decimal (``8``, ``5.5``, ``-3.5``), an ``H:MM`` string
+    (``5:30``, ``+05:45``, ``-03:30``), or numeric text. Fractional results carry the
+    minute component, so ``5:30`` -> 5.5 and formatting renders ``+05:30``.
+    Raises ``ValueError`` on an unparseable value.
+    """
+    s = str(value).strip()
+    m = re.match(r"^([+-]?)(\d{1,2}):([0-5]\d)$", s)
+    if m:
+        sign = -1.0 if m.group(1) == "-" else 1.0
+        return sign * (int(m.group(2)) + int(m.group(3)) / 60.0)
+    return float(s)  # decimal hours ("8", "5.5", "-3.5")
 
 
 def _tzinfo(tz_hours: float | None = None) -> timezone:

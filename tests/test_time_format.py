@@ -90,3 +90,28 @@ def test_auto_follows_system_tz(tmp_path):
     finally:
         e.close()
 
+
+def test_parse_tz_hours_supports_half_and_quarter():
+    P = lifecycle.parse_tz_hours
+    assert P("8") == 8.0
+    assert P(8) == 8.0
+    assert P("5.5") == 5.5
+    assert P("-3.5") == -3.5
+    assert P("5:30") == 5.5
+    assert P("+05:45") == 5.75
+    assert P("-03:30") == -3.5
+    assert P("0:00") == 0.0
+
+
+def test_engine_half_hour_offsets(tmp_path):
+    from hitmind.core.engine import Engine
+    cases = [("5:30", "+05:30"), (5.5, "+05:30"), ("5:45", "+05:45"), ("-3:30", "-03:30"), ("9:30", "+09:30")]
+    for spec, suffix in cases:
+        e = Engine(str(tmp_path / f"d{str(spec).replace(':', '_')}.db"), agent_id="x", tz_hours=spec)
+        try:
+            mid = e.capture("半点时区", "fact")["data"]["id"]
+            ts = _ts(e, mid)
+            assert SEC_RE.match(ts) and ts.endswith(suffix), (spec, ts)
+        finally:
+            e.close()
+
