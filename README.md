@@ -13,7 +13,7 @@ HitMind 支持 work 和 chat 两种模式，分别适用于长对话与短对话
 ## 核心特性
 
 - **多 Agent 共享**：共享靠 Core + Schema + 同一个 SQLite 文件，不靠某个接口类。有钩子的宿主走 Provider + 压缩钩子；无钩子的宿主走 MCP。
-- **轻量、core 零第三方依赖**：纯标准库，单文件 SQLite，**无重型服务与知识图谱**。作为 Provider 暴露 **11 个工具**，且全部走宿主「按需加载」（progressive tool disclosure）——常驻工具面近乎为零，用到某个工具时其 schema 才被拉入上下文。无编译扩展、无需 side venv，装进宿主 Python 即可跑。
+- **轻量、core 零第三方依赖**：python纯标准库，单文件 SQLite，**无重型服务与知识图谱**，作为hermes插件安装时**按需披露**工具。
 - **合理利用上下文压缩机制**：利用hermes压缩后钩子，episode 直接保存宿主累积压缩摘要，由 LLM 做「上次 vs 这次」的差异比较、增量抽取记忆；
 - **闲时可扩展整理**：写时零 LLM 预聚类（余弦单链）→ 闲时拉取式 LLM 定稿 topic / 复核版本 / chat 批次抽取；任务可插拔、默认开启。
 - **低LLM调用**：仅部分闲时任务会调用LLM，不阻塞正常AGENT流程。
@@ -26,7 +26,7 @@ HitMind 支持 work 和 chat 两种模式，分别适用于长对话与短对话
 HitMind 的记忆分两层：**L1 episode** 承接上下文，**L2 memory** 是最终可检索的记忆单元。**原文（宿主的完整转录）不属于记忆体系**，仅作为外部、可选的来源。
 
 ```
-原文/转录   宿主 state.db（messages）—— 外部、可选的"尽力而为"来源，非 HitMind 的一层
+原文/转录   宿主 state.db（messages）—— AGENT对话原文
               │  work：压缩时只读取"累积压缩摘要"；chat：按游标读取"未处理轮次"
               ▼
 L1 episode  一个 session 一条；work 存压缩摘要，chat 存窗口批次(range)
@@ -71,17 +71,15 @@ L2 memory   persona / fact / event / procedure，episode_id 指回 L1
 
 ### 环境依赖
 
-- Python **>= 3.11**（core 无需任何编译扩展）。
-- [uv](https://docs.astral.sh/uv/)（推荐用于建 venv 与依赖管理）。
-- 可选：本地 embedding 服务（OpenAI 兼容 `/v1/embeddings`，同机可带 `/rerank`）。**缺失时自动降级为 BM25-only、跳过 rerank，不会挂**。
+- Python **>= 3.11**
+- [uv](https://docs.astral.sh/uv/)
+- 可选：embedding 、rerank服务。**未配置时自动降级为 BM25-only、跳过 rerank，但效果不佳**。
 
-### 安装与测试
+### 安装
 
 ```bash
-git clone <repo> hitmind && cd hitmind
+git clone https://github.com/Fishskys/hitmind.git && cd hitmind
 uv sync --extra dev
-uv run pytest          # 全部单测（unit + 契约 + 并发 + 端到端切片）
-uv run ruff check      # lint
 ```
 
 ### 安装到 Hermes（作为记忆 Provider）
@@ -92,7 +90,7 @@ HitMind 可以作为 Hermes 的 **记忆 Provider 插件**：
 
 ```bash
 # 1) 取得包目录（源码仓库根下的 hitmind/ 即插件目录）
-git clone <repo> hitmind-src && cd hitmind-src
+git clone https://github.com/Fishskys/hitmind.git && cd hitmind
 
 # 2) 复制到 Hermes 用户插件目录（目录内含 plugin.yaml + __init__.py(register)）
 cp -r hitmind "$HERMES_HOME/plugins/hitmind"
@@ -107,7 +105,7 @@ hermes memory status        # Provider=hitmind / installed ✓ / available ✓
 
 #### 提供的工具（11 个）
 
-作为记忆 Provider，HitMind 暴露 **11 个工具**（`capture` / `consolidate` 为内部/派发用、不暴露；其余配置项不占工具预算）。它们**全部通过宿主 registry 注册、走「按需加载」**：不在每轮提示词里常驻，由宿主的 `tool_search`/`tool_describe`/`tool_call` 桥按需检索与调用。
+作为 hermes 插件使用时，HitMind 提供了 **11 个工具**，全部使用 hermes registry 注册，并按需加载。
 
 | 工具 | 作用 |
 |---|---|
@@ -136,9 +134,7 @@ uv run hitmind-mcp            # stdio；streamable-HTTP 规划中
 
 ## 配置说明
 
-**优先用桌面配置页**：Plugins → HitMind 设置，分组呈现 40+ 项。解析优先级：**config.json（桌面表单）→ `HITMIND_*` 环境变量 → 内置默认**；解析在适配层完成，Core 只认构造参数。
-
-常见可调项（部分）：
+在hermes desktop的设置-记忆与上下文页可以看到全部配置，以下仅展示常用配置：
 
 | 分组 | 配置 | 默认 | 作用 |
 | --- | --- | --- | --- |
@@ -153,7 +149,7 @@ uv run hitmind-mcp            # stdio；streamable-HTTP 规划中
 | 生命周期 | `version_keep` / `episode_ttl_days` | 5 / 90 | 版本保留份数 / episode TTL |
 | 生命周期 | `idle_consolidate_seconds` | 300 | 闲时整理轮询间隔（0=关闭）|
 
-密钥（如 embedding / rerank 的 API key）只放宿主密钥文件，不进 `config.json`、不回显。完整清单见 [`hitmind/config_schema.py`](hitmind/config_schema.py) 与 [06 · 工程骨架](docs/architecture/06-engineering.md)。
+完整清单见 [`hitmind/config_schema.py`](hitmind/config_schema.py) 与 [06 · 工程骨架](docs/architecture/06-engineering.md)。
 
 ---
 
