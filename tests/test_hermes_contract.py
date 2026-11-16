@@ -44,7 +44,10 @@ def test_adapter_matches_host_contract():
     assert isinstance(prov.is_available(), bool)
     assert isinstance(prov.system_prompt_block(), str)
     schemas = prov.get_tool_schemas()
-    assert isinstance(schemas, list) and len(schemas) == 9
+    # all tools unified: 9 core + hitmind_export + hitmind_import = 11
+    assert isinstance(schemas, list) and len(schemas) == 11
+    names = {s["name"] for s in schemas}
+    assert {"hitmind_export", "hitmind_import"} <= names
     assert all({"name", "description", "parameters"} <= set(s) for s in schemas)
 
     import tempfile

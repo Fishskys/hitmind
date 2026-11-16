@@ -13,7 +13,7 @@ HitMind 支持 work 和 chat 两种模式，分别适用于长对话与短对话
 ## 核心特性
 
 - **多 Agent 共享**：共享靠 Core + Schema + 同一个 SQLite 文件，不靠某个接口类。有钩子的宿主走 Provider + 压缩钩子；无钩子的宿主走 MCP。
-- **轻量、core 零第三方依赖**：纯标准库，单文件 SQLite，**无重型服务与知识图谱**。作为 Provider 只向AGENT暴露 **9 个工具（schema ≈660 tokens）**，无编译扩展、无需 side venv，装进宿主 Python 即可跑。
+- **轻量、core 零第三方依赖**：纯标准库，单文件 SQLite，**无重型服务与知识图谱**。作为 Provider 暴露 **11 个工具**，且全部走宿主「按需加载」（progressive tool disclosure）——常驻工具面近乎为零，用到某个工具时其 schema 才被拉入上下文。无编译扩展、无需 side venv，装进宿主 Python 即可跑。
 - **合理利用上下文压缩机制**：利用hermes压缩后钩子，episode 直接保存宿主累积压缩摘要，由 LLM 做「上次 vs 这次」的差异比较、增量抽取记忆；
 - **闲时可扩展整理**：写时零 LLM 预聚类（余弦单链）→ 闲时拉取式 LLM 定稿 topic / 复核版本 / chat 批次抽取；任务可插拔、默认开启。
 - **低LLM调用**：仅部分闲时任务会调用LLM，不阻塞正常AGENT流程。
@@ -105,9 +105,9 @@ hermes memory status        # Provider=hitmind / installed ✓ / available ✓
 - 数据库默认位于 `$HERMES_HOME/hitmind/data/hitmind.db`（自动创建）。
 - **多 Hermes home / 多套环境**：对每个 home 各复制一份到其 `plugins/hitmind`（各自独立代码目录，互不共享）。
 
-#### 提供的工具（9 个）
+#### 提供的工具（11 个）
 
-作为记忆 Provider，HitMind 向模型暴露 **9 个工具**（`capture` / `consolidate` 为内部/派发用、不暴露；其余配置项不占工具预算）：
+作为记忆 Provider，HitMind 暴露 **11 个工具**（`capture` / `consolidate` 为内部/派发用、不暴露；其余配置项不占工具预算）。它们**全部通过宿主 registry 注册、走「按需加载」**：不在每轮提示词里常驻，由宿主的 `tool_search`/`tool_describe`/`tool_call` 桥按需检索与调用。
 
 | 工具 | 作用 |
 |---|---|
@@ -120,8 +120,10 @@ hermes memory status        # Provider=hitmind / installed ✓ / available ✓
 | `hitmind_reviews` | 列出待复核记忆（inactive）|
 | `hitmind_review_resolve` | 裁决待复核（accept / reject / supersede）|
 | `hitmind_stats` | 计数 / 健康 / embedding 状态 |
+| `hitmind_export` | 导出记忆为 JSON（备份）|
+| `hitmind_import` | 从 JSON 导入记忆（校验，merge / replace）|
 
-> **轻量**：仅 **9 个工具，schema 约 2.3K 字符（≈660 tokens）**，对上下文与首 token 延迟更友好；另外提供`export` / `import` 工具，按需使用。
+> **轻量**：11 个工具的 schema 合计约 3.0K 字符（≈870 tokens），但**全部按需加载、不常驻**——常规会话里这部分上下文开销几乎为零；用完即释放。
 
 ### 独立使用（MCP）
 

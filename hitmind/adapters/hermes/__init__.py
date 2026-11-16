@@ -63,6 +63,16 @@ _TOOL_SCHEMAS = [
     {"name": "hitmind_review_resolve", "description": "Resolve an inactive memory: accept | reject | supersede.",
      "parameters": {"type": "object", "properties": {"id": {"type": "string"}, "resolution": {"type": "string", "enum": ["accept", "reject", "supersede"]}}, "required": ["id", "resolution"]}},
     {"name": "hitmind_stats", "description": "Memory counts / health / embedding status.", "parameters": {"type": "object", "properties": {}}},
+    {"name": "hitmind_export",
+     "description": "Export memories as JSON (backup). Returns {memories:[...]}.",
+     "parameters": {"type": "object", "properties": {
+         "statuses": {"type": "array", "items": {"type": "string"}},
+         "include_embeddings": {"type": "boolean"}}}},
+    {"name": "hitmind_import",
+     "description": "Import memories from JSON (validated). mode=merge|replace.",
+     "parameters": {"type": "object", "properties": {
+         "memories": {"type": "array", "items": {"type": "object"}},
+         "mode": {"type": "string", "enum": ["merge", "replace"]}}, "required": ["memories"]}},
 ]
 
 _TOOL_MAP = {
@@ -78,23 +88,6 @@ _TOOL_MAP = {
     "hitmind_reviews": lambda e, a: e.reviews(limit=a.get("limit", 50)),
     "hitmind_review_resolve": lambda e, a: e.review_resolve(a["id"], a["resolution"]),
     "hitmind_stats": lambda e, a: e.stats(),
-}
-
-# Optional import/export tools — OFF by default (not in context). Enable with
-# HITMIND_EXPOSE_IMPORT_EXPORT=1, or use the CLI `hitmind-io` instead (zero model context).
-_IMPORT_EXPORT_SCHEMAS = [
-    {"name": "hitmind_export",
-     "description": "Export memories as JSON (backup). Returns {memories:[...]}.",
-     "parameters": {"type": "object", "properties": {
-         "statuses": {"type": "array", "items": {"type": "string"}},
-         "include_embeddings": {"type": "boolean"}}}},
-    {"name": "hitmind_import",
-     "description": "Import memories from JSON (validated). mode=merge|replace.",
-     "parameters": {"type": "object", "properties": {
-         "memories": {"type": "array", "items": {"type": "object"}},
-         "mode": {"type": "string", "enum": ["merge", "replace"]}}, "required": ["memories"]}},
-]
-_IMPORT_EXPORT_MAP = {
     "hitmind_export": lambda e, a: e.export_memories(
         statuses=a.get("statuses"), include_embeddings=a.get("include_embeddings", False)),
     "hitmind_import": lambda e, a: e.import_memories(a.get("memories"), mode=a.get("mode", "merge")),
@@ -130,8 +123,6 @@ def _register_tools_with_host(ctx) -> bool:
     if not callable(register_tool):
         return False
     schemas = list(_TOOL_SCHEMAS)
-    if os.environ.get("HITMIND_EXPOSE_IMPORT_EXPORT", "0") not in ("0", "", "false", "False"):
-        schemas.extend(_IMPORT_EXPORT_SCHEMAS)
     for schema in schemas:
         nm = schema.get("name")
         if not nm:
@@ -486,15 +477,12 @@ class HitMindMemoryProvider(MemoryProvider):  # type: ignore[misc]
         # disclosure; do NOT also inject them here (avoids a duplicate tool surface).
         if getattr(self, "_registry_mode", False):
             return []
-        schemas = list(_TOOL_SCHEMAS)
-        if os.environ.get("HITMIND_EXPOSE_IMPORT_EXPORT", "0") not in ("0", "", "false", "False"):
-            schemas.extend(_IMPORT_EXPORT_SCHEMAS)
-        return schemas
+        return list(_TOOL_SCHEMAS)
 
     def handle_tool_call(self, tool_name: str, args: dict, **kwargs: Any) -> str:
         if self._engine is None:
             return json.dumps(models.err(models.INTERNAL, "not initialized"))
-        fn = _TOOL_MAP.get(tool_name) or _IMPORT_EXPORT_MAP.get(tool_name)
+        fn = _TOOL_MAP.get(tool_name)
         if fn is None:
             return json.dumps(models.err(models.NOT_FOUND, f"unknown tool: {tool_name}"))
         try:
