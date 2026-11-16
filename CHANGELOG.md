@@ -4,6 +4,17 @@
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-11-14
+
+### Added
+- 工具改为**渐进式披露（按需加载）**：全部工具通过宿主 registry 以 `toolset="hitmind"` 注册，默认不常驻提示词，由宿主的 `tool_search` / `tool_describe` / `tool_call` 桥按需检索与加载（Hermes）。常驻工具面近乎为零；未提供 `register_tool` 的宿主自动回退到原 `get_tool_schemas` 暴露。
+
+### Changed
+- 工具集统一为 **11 个**：`hitmind_export` / `hitmind_import` 并入主工具集，与其余 9 个核心工具同一套注册与派发；**MCP 与 Hermes 插件工具集保持一致**（9 核心 + export/import）。
+
+### Removed
+- 移除 `HITMIND_EXPOSE_IMPORT_EXPORT` 环境变量（改为按需加载后，export/import 不再需要单独开关）。
+
 ## [0.1.1] - 2026-11-14
 
 ### Changed
@@ -33,6 +44,7 @@
 - 接口与配置：Hermes 原生绑定 + MCP（stdio）；桌面配置页全量参数化；JSON 记忆导出 / 导入。
 - 工程保障：外部调用（LLM / embedding / rerank）超时与连续失败熔断、自动降级；提交前敏感信息检查（pre-commit）。
 
-[Unreleased]: https://github.com/Fishskys/hitmind/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/Fishskys/hitmind/compare/v0.1.2...HEAD
+[0.1.2]: https://github.com/Fishskys/hitmind/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/Fishskys/hitmind/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/Fishskys/hitmind/releases/tag/v0.1.0

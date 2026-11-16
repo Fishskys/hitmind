@@ -12,7 +12,7 @@ so plain ``import hitmind`` (MCP, tests, gateway) never needs Hermes on the path
 
 from .core.engine import Engine
 
-__version__ = "0.1.1"
+__version__ = "0.1.2"
 
 
 def register(ctx) -> None:
