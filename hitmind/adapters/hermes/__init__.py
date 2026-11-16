@@ -101,6 +101,53 @@ _IMPORT_EXPORT_MAP = {
 }
 
 
+# --- Host registry registration (progressive tool disclosure) -----------------
+# When the host exposes ``ctx.register_tool`` (Hermes), register EVERY tool into the host
+# tool registry under toolset ``"hitmind"``. Registered non-core plugin tools are then
+# *deferrable*: progressive disclosure (``tools/tool_search.py``) moves them behind the
+# ``tool_search``/``tool_describe``/``tool_call`` bridge and loads a tool's schema only when
+# the model asks for it — so the 9+ schemas no longer sit in every prompt. Dispatch is
+# engine-agnostic: the registry handler resolves the live Engine from the currently-active
+# provider instances, so it keeps working even though the host constructs a fresh provider
+# per message. When ``ctx.register_tool`` is unavailable we fall back to ``get_tool_schemas``.
+_ACTIVE_PROVIDERS: list = []
+
+
+def _register_dispatch(name: str, args: dict) -> str:
+    """Dispatch a registry-invoked tool call to the active provider's live Engine."""
+    for prov in list(_ACTIVE_PROVIDERS):
+        if getattr(prov, "_engine", None) is not None:
+            return prov.handle_tool_call(name, args or {})
+    return json.dumps(models.err(models.INTERNAL, "hitmind not initialized"))
+
+
+def _register_tools_with_host(ctx) -> bool:
+    """Register all HitMind tools in the host registry under toolset 'hitmind'.
+
+    Returns True when the host supports ``ctx.register_tool`` and registration was attempted
+    (so the provider can suppress its legacy ``get_tool_schemas`` exposure)."""
+    register_tool = getattr(ctx, "register_tool", None)
+    if not callable(register_tool):
+        return False
+    schemas = list(_TOOL_SCHEMAS)
+    if os.environ.get("HITMIND_EXPOSE_IMPORT_EXPORT", "0") not in ("0", "", "false", "False"):
+        schemas.extend(_IMPORT_EXPORT_SCHEMAS)
+    for schema in schemas:
+        nm = schema.get("name")
+        if not nm:
+            continue
+
+        def _handler(args, _name=nm, **kw):
+            return _register_dispatch(_name, args)
+
+        try:
+            register_tool(name=nm, toolset="hitmind", schema=schema,
+                          handler=_handler, description=schema.get("description", ""))
+        except Exception as exc:  # a secondary registration must not break the provider
+            logger.debug("hitmind register_tool(%s) skipped: %s", nm, exc)
+    return True
+
+
 class HitMindMemoryProvider(MemoryProvider):  # type: ignore[misc]
     def __init__(self) -> None:
         self._engine: Engine | None = None
@@ -120,6 +167,9 @@ class HitMindMemoryProvider(MemoryProvider):  # type: ignore[misc]
         # idle/background runner (chat batch + topic aggregation); resolved in initialize()
         self._auto_runner = True
         self._runner: BackgroundTaskRunner | None = None
+        # set True when tools are registered in the host registry (registration time); in that
+        # mode we do NOT also expose them via get_tool_schemas (avoids double tool surface).
+        self._registry_mode = False
 
     @property
     def name(self) -> str:
@@ -258,6 +308,14 @@ class HitMindMemoryProvider(MemoryProvider):  # type: ignore[misc]
             capacity_warn=self._config_value("capacity_warn", "HITMIND_CAPACITY_WARN", 200000, int),
             consolidate_llm_enabled=self._config_bool("consolidate_llm_enabled", "HITMIND_CONSOLIDATE_LLM_ENABLED", True),
         )
+        # Track this instance as a live provider so registry-registered tool handlers (which are
+        # dispatched outside the memory-manager path) can resolve a live Engine. Bounded, newest
+        # kept; the host builds a fresh provider per message.
+        try:
+            _ACTIVE_PROVIDERS.append(self)
+            del _ACTIVE_PROVIDERS[:-8]
+        except Exception:  # pragma: no cover
+            pass
         # inject the LLM hard-timeout resolved from config into the adapter (module default is env-based)
         try:
             from . import llm as _llm_mod
@@ -423,6 +481,11 @@ class HitMindMemoryProvider(MemoryProvider):  # type: ignore[misc]
         threading.Thread(target=_work, daemon=True).start()
 
     def get_tool_schemas(self) -> list:
+        # In registry mode (Hermes with ctx.register_tool) the tools are registered on the
+        # host tool surface under toolset "hitmind" and loaded on demand via progressive
+        # disclosure; do NOT also inject them here (avoids a duplicate tool surface).
+        if getattr(self, "_registry_mode", False):
+            return []
         schemas = list(_TOOL_SCHEMAS)
         if os.environ.get("HITMIND_EXPOSE_IMPORT_EXPORT", "0") not in ("0", "", "false", "False"):
             schemas.extend(_IMPORT_EXPORT_SCHEMAS)
@@ -459,6 +522,14 @@ def register(ctx) -> None:
         provider = HitMindMemoryProvider()
         provider._plugin_ctx = ctx
         ctx.register_memory_provider(provider)
+        # Register ALL tools in the host registry under toolset "hitmind" so progressive tool
+        # disclosure can defer them (loaded on demand). When the host lacks ctx.register_tool,
+        # fall back to the provider's get_tool_schemas() exposure.
+        try:
+            if _register_tools_with_host(ctx):
+                provider._registry_mode = True
+        except Exception as exc:  # pragma: no cover - non-fatal
+            logger.debug("hitmind registry tool registration skipped: %s", exc)
         # Register our auxiliary LLM task so the user can pick provider/model for
         # topic finalization in the standard `auxiliary.hitmind_topic` config (and
         # the picker). Unset -> host falls back to the main model automatically.
