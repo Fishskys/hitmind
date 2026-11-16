@@ -45,7 +45,7 @@
 
 - Core：11 个动词门面，零宿主依赖。
 - Hermes 绑定：Provider + 压缩钩子 + 闲时后台线程 + 桌面配置页。
-- MCP：当前实现 **stdio 传输**（9 个工具），`agent_id` 来自 `--agent-id` / `HITMIND_AGENT_ID`；streamable-HTTP + bearer（token 名 = agent_id 做 per-agent provenance）为规划项。
+- MCP：当前实现 **stdio 传输**（11 个工具，与 Hermes 插件一致：9 核心 + export/import），`agent_id` 来自 `--agent-id` / `HITMIND_AGENT_ID`；streamable-HTTP + bearer（token 名 = agent_id 做 per-agent provenance）为规划项。
 
 ## 5. 行为闭环
 

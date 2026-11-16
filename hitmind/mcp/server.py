@@ -2,7 +2,8 @@
 
 Uses the official ``mcp`` SDK 2.x (``MCPServer``, pinned ``mcp>=2.0.0,<3``;
 first stable 2.0.0 released 2026-07-28) over stdio by default.
-Exposes 9 memory tools. ``--selftest`` runs a core round-trip without the SDK.
+Exposes 11 memory tools (same set as the Hermes plugin: 9 core + export/import).
+``--selftest`` runs a core round-trip without the SDK.
 
 Tools are declared with explicit signatures so the SDK can generate correct
 JSON schemas (a **kwargs catch-all would break arg validation).
@@ -37,7 +38,7 @@ def _envelope(engine: Engine, fn, *args, **kwargs) -> str:
 
 
 def build_server(engine: Engine):
-    """Build an MCPServer (mcp 2.x) with 9 explicitly-typed tools."""
+    """Build an MCPServer (mcp 2.x) with 11 explicitly-typed tools."""
     from mcp.server import MCPServer
 
     app = MCPServer("hitmind")
@@ -93,6 +94,18 @@ def build_server(engine: Engine):
     def hitmind_stats() -> str:
         """Memory counts / health / embedding status."""
         return _envelope(engine, engine.stats)
+
+    @app.tool()
+    def hitmind_export(statuses: Optional[list[str]] = None,
+                       include_embeddings: bool = False) -> str:
+        """Export memories as JSON (backup). Returns {memories:[...]}."""
+        return _envelope(engine, engine.export_memories,
+                         statuses=statuses, include_embeddings=include_embeddings)
+
+    @app.tool()
+    def hitmind_import(memories: list[dict], mode: str = "merge") -> str:
+        """Import memories from JSON (validated). mode=merge|replace."""
+        return _envelope(engine, engine.import_memories, memories, mode=mode)
 
     return app
 
