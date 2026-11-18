@@ -1,0 +1,72 @@
+{
+  "name": "dsh-hitmind",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "index.js",
+  "license": "MIT",
+  "description": "HitMind long-term memory as a native DeepSeek Harness (DSH) plugin: 11 memory tools (defineTool), per-turn auto-injection, chat/compaction capture. Python core runs as a stdio sidecar; all LLM work is routed back to the host ctx.llm.",
+  "keywords": [
+    "deepseek-harness",
+    "dsh",
+    "dsh-plugin",
+    "memory",
+    "long-term-memory",
+    "agent-memory",
+    "hitmind"
+  ],
+  "homepage": "https://github.com/Fishskys/hitmind",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Fishskys/hitmind.git",
+    "directory": "dsh-plugin"
+  },
+  "bugs": {
+    "url": "https://github.com/Fishskys/hitmind/issues"
+  },
+  "files": [
+    "index.js",
+    "client.js",
+    "cordis.patch.yml",
+    "README.md"
+  ],
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "external": []
+    }
+  },
+  "engines": {
+    "dsh": ">=0.2.0 <0.3.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "optionalDependencies": {
+    "dsh-hitmind-runtime-linux-x64": "0.1.0",
+    "dsh-hitmind-runtime-linux-arm64": "0.1.0",
+    "dsh-hitmind-runtime-darwin-arm64": "0.1.0",
+    "dsh-hitmind-runtime-darwin-x64": "0.1.0",
+    "dsh-hitmind-runtime-win32-x64": "0.1.0"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "~4.1.0",
+    "@deepseek-ai/dsh-tools": "0.2.2-rc.1",
+    "@deepseek-ai/dsh-llm": "0.2.2-rc.1",
+    "@deepseek-ai/dsh-agent": "0.2.2-rc.1",
+    "@deepseek-ai/schemastery": "~3.19.0"
+  },
+  "devDependencies": {
+    "@deepseek-ai/cordis": "~4.1.0",
+    "@deepseek-ai/dsh-tools": "0.2.2-rc.1",
+    "@deepseek-ai/dsh-llm": "0.2.2-rc.1",
+    "@deepseek-ai/dsh-agent": "0.2.2-rc.1",
+    "@deepseek-ai/schemastery": "~3.19.0"
+  }
+}

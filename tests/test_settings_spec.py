@@ -21,6 +21,10 @@ INDEX_JS = REPO / "dsh-plugin" / "index.js"
 
 # DSH-facing rename(s): the core key `recall_top_k` surfaces as `injectTopK` in the plugin.
 RENAME = {"recall_top_k": "injectTopK"}
+# Core keys intentionally NOT mirrored into the DSH plugin's Config/CFG_ENV: DSH is a
+# single host with one global mode switch (`workMode`), so per-platform `work_platforms`
+# is meaningless there and is omitted on purpose.
+DSH_OMITTED = {"work_platforms"}
 
 
 def _camel(key: str) -> str:
@@ -91,6 +95,9 @@ def test_js_mirror_matches_spec():
     env_map = {m[0]: (m[1], m[2]) for m in re.findall(r"\['([a-zA-Z]+)',\s*'([A-Z_]+)',\s*'([sibf])'", env_block)}
 
     for s in spec.SETTINGS:
+        if s.key in DSH_OMITTED:
+            assert _js_name(s.key) not in cfg_keys, f"{s.key} should be omitted from DSH Config"
+            continue
         jsn = _js_name(s.key)
         assert jsn in cfg_keys, f"spec key {s.key} -> {jsn} missing from DSH Config"
         assert jsn in env_map, f"spec key {s.key} -> {jsn} missing from CFG_ENV"

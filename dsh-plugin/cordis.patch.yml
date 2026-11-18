@@ -1,0 +1,15 @@
+# HitMind native plugin for DeepSeek Harness (DSH).
+# Inserted by the bundle patch. `config` overrides the plugin defaults
+# (see index.js `Config`); add/adjust here or in your profile's cordis.patch.yml.
+- insert:
+    - id: hitmind
+      name: dsh-hitmind
+      config:
+        agentId: dsh
+        dbPath: ''
+        pythonBin: python3
+        packageRoot: ''
+        injectEnabled: true
+        captureEnabled: true
+        compactionEnabled: true
+        injectTopK: 5
