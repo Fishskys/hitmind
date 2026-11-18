@@ -191,54 +191,25 @@ class HitMindMemoryProvider(MemoryProvider):  # type: ignore[misc]
         else:
             from ...core.embedder import NullReranker
             reranker = NullReranker()
-        # kind-keyed maps: each kind gets its own field (kind panel fields), falling back to defaults
-        _hl_defaults = {"persona": 180, "fact": 180, "event": 14, "procedure": 60}
-        _ttl_defaults = {"persona": None, "fact": None, "event": 90, "procedure": None}
-        half_life = {
-            k: self._config_value(f"half_life_{k}_days", f"HITMIND_HALF_LIFE_{k.upper()}_DAYS", d, int)
-            for k, d in _hl_defaults.items()
-        }
-        ttl_days = {}
-        for k, d in _ttl_defaults.items():
-            v = self._config_value(f"ttl_{k}_days", f"HITMIND_TTL_{k.upper()}_DAYS", d if d is not None else 0, int)
-            ttl_days[k] = v if v and v > 0 else None  # 0 -> never expires
+        # ---- tunables: single source of truth from settings_spec ----
+        # Resolver precedence: Desktop config (config.json) -> HITMIND_* env -> spec default.
+        from ...settings_spec import BY_KEY as _SPEC_BY_KEY
+        from ...settings_spec import build_engine_kwargs
+        native_cfg = self._native_cfg or {}
+
+        def _resolve(key: str):
+            st = _SPEC_BY_KEY[key]
+            raw = native_cfg.get(key)
+            if raw is not None and raw != "":
+                return raw
+            raw = os.environ.get(st.env)
+            if raw is not None:
+                return raw
+            return st.default
+
         self._engine = Engine(
             str(db_path), agent_id="hermes", embedder=embedder, reranker=reranker,
-            # Engine-arg tunables (config first, env fallback, then these defaults)
-            cluster_min_size=self._config_value("cluster_min_size", "HITMIND_CLUSTER_MIN_SIZE", 10, int),
-            consolidate_every_turns=self._config_value("consolidate_every_turns", "HITMIND_SYNC_CONSOLIDATE_EVERY", 10, int),
-            topic_expand_cap=self._config_value("topic_expand_cap", "HITMIND_TOPIC_EXPAND_CAP", 3, int),
-            topic_expand_hits=self._config_value("topic_expand_hits", "HITMIND_TOPIC_EXPAND_HITS", 3, int),
-            recall_top_k=self._config_value("recall_top_k", "HITMIND_RECALL_TOP_K", 5, int),
-            dense_floor=self._config_value("dense_floor", "HITMIND_DENSE_FLOOR", 0.5, float),
-            rerank_enabled=self._config_bool("rerank_enabled", "HITMIND_RERANK_ENABLED", True),
-            rerank_pool=self._config_value("rerank_pool", "HITMIND_RERANK_POOL", 30, int),
-            memory_max_chars=self._config_value("memory_max_chars", "HITMIND_MEMORY_MAX_CHARS", 1024, int),
-            version_keep=self._config_value("version_keep", "HITMIND_VERSION_KEEP", 5, int),
-            review_trigger_min=self._config_value("review_trigger_min", "HITMIND_REVIEW_TRIGGER_MIN", 3, int),
-            idle_poll_seconds=self._config_value("idle_poll_seconds", "HITMIND_IDLE_POLL_SECONDS", 60, int),
-            kind_importance={
-                k: self._config_value(f"importance_{k}", f"HITMIND_IMPORTANCE_{k.upper()}", 1.0, float)
-                for k in ("persona", "fact", "event", "procedure")
-            },
-            idle_consolidate_seconds=self._config_value("idle_consolidate_seconds", "HITMIND_IDLE_CONSOLIDATE_SECONDS", 300, int),
-            chat_cooldown_seconds=self._config_value("chat_cooldown_seconds", "HITMIND_CHAT_COOLDOWN_SECONDS", 1200, int),
-            episode_ttl_days=self._config_value("episode_ttl_days", "HITMIND_EPISODE_TTL_DAYS", 90, int),
-            raw_ttl_days=self._config_value("raw_ttl_days", "HITMIND_RAW_TTL_DAYS", 30, int) or None,
-            # clustering knobs
-            cluster_cos_floor=self._config_value("cluster_cos_floor", "HITMIND_CLUSTER_COS_FLOOR", 0.78, float),
-            cluster_scan_window=self._config_value("cluster_scan_window", "HITMIND_CLUSTER_SCAN_WINDOW", 200, int),
-            topic_max_members=self._config_value("topic_max_members", "HITMIND_TOPIC_MAX_MEMBERS", 10, int),
-            topic_min_cluster=self._config_value("topic_min_cluster", "HITMIND_TOPIC_MIN_CLUSTER", 2, int),
-            # lifecycle knobs
-            half_life_days=half_life,
-            ttl_days=ttl_days,
-            rel_weight=self._config_value("rel_weight", "HITMIND_REL_WEIGHT", 0.8, float),
-            importance_weight=self._config_value("importance_weight", "HITMIND_IMPORTANCE_WEIGHT", 0.1, float),
-            time_normalize=self._config_bool("time_normalize", "HITMIND_TIME_NORMALIZE", True),
-            tz_hours=self._config_value("tz_hours", "HITMIND_TZ_HOURS", "auto"),
-            capacity_warn=self._config_value("capacity_warn", "HITMIND_CAPACITY_WARN", 200000, int),
-            consolidate_llm_enabled=self._config_bool("consolidate_llm_enabled", "HITMIND_CONSOLIDATE_LLM_ENABLED", True),
+            **build_engine_kwargs(_resolve),
         )
         # Track this instance as a live provider so registry-registered tool handlers (which are
         # dispatched outside the memory-manager path) can resolve a live Engine. Bounded, newest

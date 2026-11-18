@@ -60,3 +60,7 @@ hitmind/data/
 
 # --- 参考项目（各自独立 git 仓库，仅本地参考，不入本仓） ---
 references/
+
+# --- 设计提案（不进版本库） ---
+docs/proposals/
+

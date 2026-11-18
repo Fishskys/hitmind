@@ -172,7 +172,18 @@ class Engine:
         self.review_trigger_min = _cfg(review_trigger_min, "HITMIND_REVIEW_TRIGGER_MIN", topic_mod.REVIEW_TRIGGER_MIN)
         # background runner wake/poll interval (seconds); the daemon thread ticks this often.
         self.idle_poll_seconds = max(15, _cfg(idle_poll_seconds, "HITMIND_IDLE_POLL_SECONDS", 60))
+        # env fallbacks keep bare-env and spec-driven hosts consistent with the single source.
+        def _env_num(env_key, default, cast=int):
+            try:
+                return cast(os.environ.get(env_key, str(default)))
+            except (TypeError, ValueError):
+                return default
         # per-kind default importance (0..1) applied when a write doesn't specify one
+        if kind_importance is None:
+            kind_importance = {
+                k: _env_num(f"HITMIND_IMPORTANCE_{k.upper()}", DEFAULT_KIND_IMPORTANCE[k], float)
+                for k in DEFAULT_KIND_IMPORTANCE
+            }
         self.kind_importance = _merge_kind_importance(kind_importance)
         # dense cosine floor (absolute): drop candidates whose cosine < this before fusion.
         # Resolves to retrieval.DEFAULT_CONFIG["dense_floor"] (0.50) when not provided.
@@ -192,22 +203,36 @@ class Engine:
         # chat-batch cooldown after too many consecutive extraction failures: keep the
         # cursor (LOSE NOTHING) and retry after this many seconds (default 20 min).
         self.chat_cooldown_seconds = _cfg(chat_cooldown_seconds, "HITMIND_CHAT_COOLDOWN_SECONDS", 1200)
-        # ---- clustering knobs (were topic.py constants; now configurable; 0/None -> constant)
-        def _cfg_or(explicit, default):
-            return default if explicit is None else explicit
-        self.cluster_cos_floor = float(_cfg_or(cluster_cos_floor, topic_mod.PRE_CLUSTER_COS_FLOOR))
-        self.cluster_scan_window = int(_cfg_or(cluster_scan_window, topic_mod.PRE_CLUSTER_SCAN_WINDOW))
+        # ---- clustering knobs (were topic.py constants; now configurable; None -> env -> constant)
+        def _cfg_or(explicit, env_key, default):
+            if explicit is not None:
+                return explicit
+            return _env_num(env_key, default, float if isinstance(default, float) else int)
+        self.cluster_cos_floor = float(_cfg_or(cluster_cos_floor, "HITMIND_CLUSTER_COS_FLOOR", topic_mod.PRE_CLUSTER_COS_FLOOR))
+        self.cluster_scan_window = int(_cfg_or(cluster_scan_window, "HITMIND_CLUSTER_SCAN_WINDOW", topic_mod.PRE_CLUSTER_SCAN_WINDOW))
         # topic_max_members = single-cluster cap ("一个 topic 最多几条记忆"). Default 10.
-        self.topic_max_members = int(_cfg_or(topic_max_members, 10))
-        self.topic_min_cluster = int(_cfg_or(topic_min_cluster, topic_mod.TOPIC_MIN_CLUSTER))
-        self.consolidate_llm_enabled = (topic_mod.CONSOLIDATE_LLM_ENABLED
-                                        if consolidate_llm_enabled is None else bool(consolidate_llm_enabled))
+        self.topic_max_members = int(_cfg_or(topic_max_members, "HITMIND_TOPIC_MAX_MEMBERS", 10))
+        self.topic_min_cluster = int(_cfg_or(topic_min_cluster, "HITMIND_TOPIC_MIN_CLUSTER", topic_mod.TOPIC_MIN_CLUSTER))
+        self.consolidate_llm_enabled = (
+            bool(consolidate_llm_enabled) if consolidate_llm_enabled is not None
+            else (os.environ.get("HITMIND_CONSOLIDATE_LLM_ENABLED", "1" if topic_mod.CONSOLIDATE_LLM_ENABLED else "0")
+                  not in ("0", "false", "False", "")))
         # ---- lifecycle knobs (were lifecycle.py module defaults) ----
-        self.half_life_days = half_life_days if isinstance(half_life_days, dict) else dict(lifecycle_mod.HALF_LIFE_DAYS)
-        self.ttl_days = ttl_days if isinstance(ttl_days, dict) else dict(lifecycle_mod.DEFAULT_TTL_DAYS)
-        self.rel_weight = float(_cfg_or(rel_weight, lifecycle_mod.W_REL))
-        self.importance_weight = float(_cfg_or(importance_weight, lifecycle_mod.W_IMP))
-        self.capacity_warn = int(_cfg_or(capacity_warn, lifecycle_mod.CAPACITY_WARN))
+        def _env_dict(prefix, base, cast):
+            out = dict(base)
+            for k in out:
+                raw = os.environ.get(f"{prefix}_{k.upper()}_DAYS")
+                if raw is not None:
+                    try:
+                        out[k] = cast(raw)
+                    except (TypeError, ValueError):
+                        pass
+            return out
+        self.half_life_days = half_life_days if isinstance(half_life_days, dict) else _env_dict("HITMIND_HALF_LIFE", lifecycle_mod.HALF_LIFE_DAYS, int)
+        self.ttl_days = ttl_days if isinstance(ttl_days, dict) else _env_dict("HITMIND_TTL", lifecycle_mod.DEFAULT_TTL_DAYS, int)
+        self.rel_weight = float(_cfg_or(rel_weight, "HITMIND_REL_WEIGHT", lifecycle_mod.W_REL))
+        self.importance_weight = float(_cfg_or(importance_weight, "HITMIND_IMPORTANCE_WEIGHT", lifecycle_mod.W_IMP))
+        self.capacity_warn = int(_cfg_or(capacity_warn, "HITMIND_CAPACITY_WARN", lifecycle_mod.CAPACITY_WARN))
         # timezone offset (hours) for the logical/display timestamps written to the store.
         # Resolution: explicit numeric arg > HITMIND_TZ_HOURS env > OS local timezone (auto).
         # A value of "auto"/None/"" means "read the system tz" — zero config by default.
