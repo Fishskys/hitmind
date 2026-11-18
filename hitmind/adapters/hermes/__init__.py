@@ -328,8 +328,15 @@ class HitMindMemoryProvider(MemoryProvider):  # type: ignore[misc]
         try:
             if self._mode != "chat":
                 return  # work: capture is compaction-driven via the hook
-            clean_user = sanitize_user_content(user_content)
-            if not clean_user or len(clean_user) <= self._user_min_len:
+            from ...capture_policy import should_capture
+            ok, _clean = should_capture(
+                "user", user_content,
+                roles=self._sync_roles, user_min=self._user_min_len,
+                assistant_min=self._assistant_min_len,
+                context=self._agent_context, skip_contexts=self._skip_contexts,
+                sanitizer=sanitize_user_content,
+            )
+            if not ok:
                 return
             sid = session_id or self._session_id
             res = self._engine.note_activity(sid)
