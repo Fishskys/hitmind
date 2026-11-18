@@ -11,6 +11,7 @@ WAL + busy_timeout; the lock only guards in-process concurrent use.
 
 from __future__ import annotations
 
+import os
 import sqlite3
 import threading
 import time
@@ -48,12 +49,34 @@ def _retry_locked(fn, attempts: int = 60, delay: float = 0.05):
         raise last
 
 
+def prepare_db_path(db_path: str | Path) -> None:
+    """Create the database's parent directory and tighten permissions to match
+    DSH's storage convention (owner-only: dir 0o700, db file 0o600), since the
+    memory DB is sensitive. Idempotent and best-effort: never raises, so a
+    read-only or unusual filesystem cannot break opening the DB (the connection
+    itself still surfaces a real I/O error). No-op for ``:memory:``.
+    """
+    if str(db_path) == ":memory:":
+        return
+    try:
+        parent = Path(db_path).parent
+        parent.mkdir(parents=True, exist_ok=True)
+        os.chmod(parent, 0o700)
+    except Exception:
+        pass
+    try:
+        if Path(db_path).exists():
+            os.chmod(db_path, 0o600)
+    except Exception:
+        pass
+
+
 def connect(db_path: str | Path, *, busy_timeout_ms: int = 5000) -> sqlite3.Connection:
     """Open a connection tuned for multi-process single-writer + in-process
     multi-thread usage."""
     is_mem = str(db_path) == ":memory:"
     if not is_mem:
-        Path(db_path).parent.mkdir(parents=True, exist_ok=True)
+        prepare_db_path(db_path)
     conn = sqlite3.connect(
         str(db_path),
         timeout=busy_timeout_ms / 1000.0,
@@ -65,6 +88,11 @@ def connect(db_path: str | Path, *, busy_timeout_ms: int = 5000) -> sqlite3.Conn
     cur = conn.cursor()
     cur.execute("PRAGMA busy_timeout=%d" % busy_timeout_ms)
     if not is_mem:
+        # The file is created by sqlite3.connect; tighten it now that it exists.
+        try:
+            os.chmod(str(db_path), 0o600)
+        except Exception:
+            pass
         _retry_locked(lambda: cur.execute("PRAGMA journal_mode=WAL"))
     cur.execute("PRAGMA synchronous=NORMAL")
     cur.execute("PRAGMA foreign_keys=OFF")
