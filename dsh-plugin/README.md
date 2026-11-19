@@ -54,7 +54,7 @@ L2 memory   persona / fact / event / procedure，episode_id 指回 L1
 
 ## **官方链接**
 
-**Github：**https://github.com/Fishskys/hitmind
+**Github**: https://github.com/Fishskys/hitmind
 
-**npmjs：**https://www.npmjs.com/package/dsh-hitmind
+**npmjs**: https://www.npmjs.com/package/dsh-hitmind
 
