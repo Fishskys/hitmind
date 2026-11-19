@@ -54,22 +54,26 @@ cd "$WORK"
 # Pin the interpreter so local and CI builds match and stay slim (~12 MB). The
 # host's default python3 can be much newer/heavier (e.g. 3.14) and bloat the
 # onefile binary; override with HITMIND_BUILD_PYTHON if needed.
+#
+# Cross-platform note: do NOT use `source .venv/bin/activate` / PATH — on Windows
+# the activate script and python live under .venv/Scripts (not .venv/bin). Use the
+# venv interpreter explicitly for every install and the build instead.
 PYVER="${HITMIND_BUILD_PYTHON:-3.12}"
 if command -v uv >/dev/null 2>&1; then
   uv venv --python "$PYVER" .venv
-  . .venv/bin/activate
-  uv pip install --python .venv/bin/python --quiet pyinstaller
-  uv pip install --python .venv/bin/python --quiet -e "$REPO"
+  if [ -x .venv/bin/python ]; then VPY=".venv/bin/python"; else VPY=".venv/Scripts/python"; fi
+  uv pip install --python "$VPY" --quiet pyinstaller
+  uv pip install --python "$VPY" --quiet -e "$REPO"
 else
   python3 -m venv .venv
-  . .venv/bin/activate
-  python -m pip install --quiet --upgrade pip pyinstaller
-  python -m pip install --quiet -e "$REPO"
+  if [ -x .venv/bin/python ]; then VPY=".venv/bin/python"; else VPY=".venv/Scripts/python"; fi
+  "$VPY" -m pip install --quiet --upgrade pip pyinstaller
+  "$VPY" -m pip install --quiet -e "$REPO"
 fi
-python --version
+"$VPY" --version
 
 # --- onefile build using the repo's shared entry point ---
-pyinstaller --onefile --name hitmind-daemon --collect-submodules hitmind \
+"$VPY" -m PyInstaller --onefile --name hitmind-daemon --collect-submodules hitmind \
   --distpath dist --workpath build --specpath build "$HERE/entry.py" >/dev/null 2>&1
 # PyInstaller appends .exe on Windows; account for the OS being built for.
 BIN="dist/hitmind-daemon"
