@@ -1,0 +1,51 @@
+name: admin-unpublish
+
+# One-off admin task: remove specific (pkg@version) publishes via the NPM_TOKEN
+# secret (the only valid credential available; local ~/.npmrc token is dead).
+# Guarded by a typed confirmation so it can never fire by accident.
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type UNPUBLISH to proceed'
+        required: true
+        type: string
+      specs:
+        description: 'space-separated pkg@version list'
+        required: true
+        type: string
+      dry_run:
+        description: 'true = only print, do not unpublish'
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+jobs:
+  unpublish:
+    if: ${{ inputs.confirm == 'UNPUBLISH' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org # writes .npmrc using $NODE_AUTH_TOKEN
+      - name: Unpublish
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          SPECS: ${{ inputs.specs }}
+          DRY: ${{ inputs.dry_run }}
+        shell: bash
+        run: |
+          set -u
+          for spec in $SPECS; do
+            echo "::group::$spec"
+            if [ "$DRY" = "true" ]; then
+              echo "[dry-run] npm unpublish $spec --force"
+              npm view "$spec" version 2>&1 || true
+            else
+              npm unpublish "$spec" --force 2>&1 || echo "!! failed: $spec"
+            fi
+            echo "::endgroup::"
+          done
