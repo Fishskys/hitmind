@@ -8,8 +8,10 @@ name: dsh-hitmind-runtime-build
 #   - pull_request / workflow_dispatch (publish=false): build all platforms and
 #     upload the tarballs as artifacts — a full matrix smoke test with no publish.
 #   - workflow_dispatch with publish=true, or push tag v*: build and publish to
-#     npmjs. Auth is NODE_AUTH_TOKEN (NPM_TOKEN secret) or, preferred, npm Trusted
-#     Publishing / OIDC (see docs/proposals/dsh-npm-publish.md).
+#     npmjs. Preferred auth is npm Trusted Publishing (OIDC) — the workflow has
+#     id-token: write and npm CLI auto-detects the OIDC environment (>=22.14 / npm
+#     >=11.5.1), producing a provenance attestation. A NPM_TOKEN secret is kept as
+#     a fallback for the pre-OIDC transition (unused once trusted publisher binds).
 on:
   workflow_dispatch:
     inputs:
@@ -75,7 +77,11 @@ jobs:
         env:
           HITMIND_RUNTIME_OS: ${{ matrix.plat }}
           HITMIND_RUNTIME_ARCH: ${{ matrix.arch }}
+          # OIDC (trusted publishing) auth: no token needed. Keep NPM_TOKEN as a
+          # fallback only for the pre-OIDC transition — once the trusted publisher
+          # is bound, remove the secret and this line.
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NPM_PROVENANCE: "true"
         run: |
           cd dsh-plugin/runtime
           if [ "${{ github.event_name }}" = "push" ] || [ "${{ inputs.publish }}" = "true" ]; then

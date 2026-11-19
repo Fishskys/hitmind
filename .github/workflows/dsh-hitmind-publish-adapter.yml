@@ -48,5 +48,8 @@ jobs:
         if: ${{ github.event_name == 'push' || inputs.publish == true }}
         working-directory: dsh-plugin
         env:
+          # OIDC (trusted publishing) auth: no token needed. Keep NPM_TOKEN as a
+          # fallback only for the pre-OIDC transition — once the trusted publisher
+          # is bound, remove the secret and this line.
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: npm publish --access public --provenance=false
+        run: npm publish --access public --provenance
