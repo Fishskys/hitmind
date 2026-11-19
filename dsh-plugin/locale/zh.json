@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "HitMind 长期记忆",
+    "description": "本地优先、轻量、多 Agent 共享的长期记忆：11 个记忆工具（按需披露）、每轮自动注入、对话与压缩摘要捕获。基于 Python core 的自包含守护进程，安装即用，无需另装 Python。"
+  }
+}

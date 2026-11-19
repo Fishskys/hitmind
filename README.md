@@ -2,7 +2,7 @@
 
 > 这是一个主打本地优先、轻量、可被多个 Agent 共同读写的长期记忆服务。
 
-HitMind 支持 work 和 chat 两种模式，分别适用于长对话与短对话。底层基于检索增强生成（RAG），可独立配置向量模型与Rerank模型。目前设计了基于本核心的hermes适配插件以及可多端使用的MCP服务。
+HitMind 是一款适配 hermes 和 deepseek harness 及其它多种 Agent 的共享记忆系统，支持 work 和 chat 两种模式，分别适用于长对话与短对话。底层基于检索增强生成（RAG），可独立配置向量模型与Rerank模型。该系统目前提供 hermes 和 dsh 的原生记忆插件和通用 MCP 服务。
 
 完整设计与决策见 [`docs/architecture/`](docs/architecture/README.md)。
 
@@ -12,7 +12,7 @@ HitMind 支持 work 和 chat 两种模式，分别适用于长对话与短对话
 
 ## 核心特性
 
-- **多 Agent 共享**：共享靠 Core + Schema + 同一个 SQLite 文件，不靠某个接口类。有钩子的宿主走 Provider + 压缩钩子；无钩子的宿主走 MCP。
+- **多 Agent 共享**：多Agent之间可共用同一份记忆库，共享同一份记忆
 - **轻量、core 零第三方依赖**：python纯标准库，单文件 SQLite，**无重型服务与知识图谱**，作为hermes插件安装时**按需披露**工具。
 - **合理利用上下文压缩机制**：利用hermes压缩后钩子，episode 直接保存宿主累积压缩摘要，由 LLM 做「上次 vs 这次」的差异比较、增量抽取记忆；
 - **闲时可扩展整理**：写时零 LLM 预聚类（余弦单链）→ 闲时拉取式 LLM 定稿 topic / 复核版本 / chat 批次抽取；任务可插拔、默认开启。
@@ -23,7 +23,7 @@ HitMind 支持 work 和 chat 两种模式，分别适用于长对话与短对话
 
 ## 系统双层记忆架构
 
-HitMind 的记忆分两层：**L1 episode** 承接上下文，**L2 memory** 是最终可检索的记忆单元。**原文（宿主的完整转录）不属于记忆体系**，仅作为外部、可选的来源。
+HitMind 的记忆分两层：**L1 episode** 承接上下文，**L2 memory** 是最终可检索的记忆单元。
 
 ```
 原文/转录   宿主 state.db（messages）—— AGENT对话原文
@@ -82,6 +82,18 @@ git clone https://github.com/Fishskys/hitmind.git && cd hitmind
 uv sync --extra dev
 ```
 
+### 安装到 DeepSeek Harness （作为插件）
+
+在dsh中添加插件，输入`dsh-hitmind`并安装即可
+
+或
+
+```bash
+dsh plugin --profile <name> add dsh-hitmind
+```
+
+数据库默认位置：`$DSH_HOME/hitmind/data/hitmind.db`
+
 ### 安装到 Hermes（作为记忆 Provider）
 
 HitMind 可以作为 Hermes 的 **记忆 Provider 插件**：
@@ -101,7 +113,6 @@ hermes memory status        # Provider=hitmind / installed ✓ / available ✓
 ```
 
 - 数据库默认位于 `$HERMES_HOME/hitmind/data/hitmind.db`（自动创建）。
-- **多 Hermes home / 多套环境**：对每个 home 各复制一份到其 `plugins/hitmind`（各自独立代码目录，互不共享）。
 
 #### 提供的工具（11 个）
 
@@ -123,12 +134,54 @@ hermes memory status        # Provider=hitmind / installed ✓ / available ✓
 
 > **轻量**：11 个工具的 schema 合计约 3.0K 字符（≈870 tokens），但**全部按需加载、不常驻**——常规会话里这部分上下文开销几乎为零；用完即释放。
 
-### 独立使用（MCP）
+---
+
+## MCP 服务（通用接入）
+
+### 安装
+
+在项目根目录运行：
 
 ```bash
 uv sync --extra mcp
-uv run hitmind-mcp            # stdio；streamable-HTTP 规划中
 ```
+
+### 启动 / 自检
+
+```bash
+hitmind-mcp --agent-id my-agent          # stdio，供 MCP 客户端 spawn
+hitmind-mcp --selftest                    # 不接客户端，跑一轮写入+召回后退出（验证安装）
+```
+
+| 参数 | 默认 | 说明 |
+| --- | --- | --- |
+| `--db <path>` | `$HERMES_HOME/hitmind/data/hitmind.db`（缺省 `~/.hermes/...`） | 记忆库路径。指向同一文件即可与其它宿主/Agent **共享同一份记忆** |
+| `--agent-id <id>` | `mcp`（或环境变量 `HITMIND_AGENT_ID`） | 该客户端的写入标识 |
+| `--selftest` | — | 跑一轮 core 往返后退出，用于验证安装 |
+
+**可选环境变量（建议配置）：**
+
+- Embedding：`HITMIND_EMBED_BASE_URL`、`HITMIND_EMBED_MODEL`（默认 `embeddinggemma-2`）、`HITMIND_EMBED_API_KEY`
+- Rerank：`HITMIND_RERANK_BASE_URL`、`HITMIND_RERANK_MODEL`、`HITMIND_RERANK_API_KEY`
+
+### 客户端配置片段
+
+```json
+{
+  "mcpServers": {
+    "hitmind": {
+      "command": "uv",
+      "args": ["run", "--directory", "/path/to/hitmind", "hitmind-mcp", "--agent-id", "claude"],
+      "env": {
+        "HITMIND_EMBED_BASE_URL": "http://127.0.0.1:8091/v1",
+        "HITMIND_EMBED_MODEL": "embeddinggemma-2"
+      }
+    }
+  }
+}
+```
+
+> 想多 Agent 共享同一份记忆：把 `--db` 指向同一个库文件即可
 
 ---
 
@@ -155,13 +208,23 @@ uv run hitmind-mcp            # stdio；streamable-HTTP 规划中
 
 ## 路线图
 
-- [ ] Deepseek harness适配插件设计
+- [x] Deepseek harness适配插件设计
 
 ---
 
 ## 参与贡献
 
 欢迎 Issue 与 Pull Request。改动请附带测试，并保持 `uv run pytest` 与 `uv run ruff check` 全绿；架构相关决策写入 `docs/architecture/` 对应模块（不写回单一文档）。
+
+---
+
+## 开源协议
+
+本项目采用 [MIT License](LICENSE) 发布。
+
+Copyright (c) 2026 Fishskys
+
+你可以自由使用、复制、修改、合并、发布、分发、再授权及销售本软件，但需在上述版权声明与许可声明随附的前提下。本软件按"原样"提供，不附带任何明示或默示的担保。
 
 ---
 

@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "HitMind",
+    "description": "Long-term memory as a native DeepSeek Harness plugin: 11 memory tools, per-turn auto injection, chat/compaction capture. Python core runs as a self-contained sidecar; no Python install required."
+  }
+}

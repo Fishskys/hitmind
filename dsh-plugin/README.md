@@ -2,67 +2,59 @@
 
 > 这是一个主打本地优先、轻量、可被多个 Agent 共同读写的长期记忆服务。
 
-HitMind 支持 work 和 chat 两种模式，分别适用于长对话与短对话。底层基于检索增强生成（RAG），可独立配置向量模型与Rerank模型。
+HitMind 是一款适配 hermes 和 deepseek harness 及其它多种 Agent 的共享记忆系统，支持 work 和 chat 两种模式，分别适用于长对话与短对话。底层基于检索增强生成（RAG），可独立配置向量模型与Rerank模型。该系统目前提供 hermes 和 dsh 的原生记忆插件和通用 MCP 服务。
 
 ## 核心特性
 
-- **多 Agent 共享**：共享靠 Core + Schema + 同一个 SQLite 文件，不靠某个接口类。有钩子的宿主走 Provider + 压缩钩子；无钩子的宿主走 MCP。
+- **多 Agent 共享**：多Agent之间可共用同一份记忆库，共享同一份记忆
 - **轻量、core 零第三方依赖**：python纯标准库，单文件 SQLite，**无重型服务与知识图谱**，作为hermes插件安装时**按需披露**工具。
 - **合理利用上下文压缩机制**：利用hermes压缩后钩子，episode 直接保存宿主累积压缩摘要，由 LLM 做「上次 vs 这次」的差异比较、增量抽取记忆；
 - **闲时可扩展整理**：写时零 LLM 预聚类（余弦单链）→ 闲时拉取式 LLM 定稿 topic / 复核版本 / chat 批次抽取；任务可插拔、默认开启。
 - **低LLM调用**：仅部分闲时任务会调用LLM，不阻塞正常AGENT流程。
 - **混合检索 + 二级精排**：Dense + BM25 + RRF 融合排序+rerank精排。
 
-## 安装（DSH）
+## 系统双层记忆架构
 
-DSH 插件以 npm 包形式分发，`dsh plugin` 命令内部转发 pnpm 安装：
+HitMind 的记忆分两层：**L1 episode** 承接上下文，**L2 memory** 是最终可检索的记忆单元。
 
-```bash
-dsh plugin --profile <name> add dsh-hitmind
+```
+原文/转录   宿主 state.db（messages）—— AGENT对话原文
+              │  work：压缩时只读取"累积压缩摘要"；chat：按游标读取"未处理轮次"
+              ▼
+L1 episode  一个 session 一条；work 存压缩摘要，chat 存窗口批次(range)
+              │  抽取记忆
+              ▼
+L2 memory   persona / fact / event / procedure，episode_id 指回 L1
 ```
 
-插件本体（JS adapter）只负责工具注册、注入、捕获与配置；真正的记忆引擎是 HitMind 的 Python core，以自带二进制（`hitmind-daemon`）的 stdio sidecar 形式运行。**用户无需安装 Python**：adapter 通过 `optionalDependencies` 声明了各平台的 runtime 包，pnpm / npm 会依据当前操作系统的 `os` / `cpu` 字段**只安装匹配当前平台的那一个**，其余平台自动跳过。
+两条捕获路径，都在**闲时**才调 LLM：
 
-运行时由插件内部自动定位已安装的 runtime 二进制（`resolveBundledDaemon()`），不需要任何"数据库路径 / Python 解释器 / 二进制路径"之类的配置。
+- **work 模式（压缩驱动）**：宿主压缩时，把累积压缩摘要存为 episode，LLM 比较「这次 vs 上次」只抽增量记忆（摘要累积有损，避免整体重抽重复）。
+- **chat 模式（游标批次）**：热路径只记活动、打「待处理」标记；闲时按游标取未处理轮次，一次 LLM 抽取后**成功才推进游标**，失败保留游标与消息重试（绝不丢消息）。
 
-**数据位置**：记忆库默认落在 DSH 的数据目录 `$DSH_HOME/hitmind/data/hitmind.db`（`$DSH_HOME` 默认 `~/.dsh`），可用环境变量 `HITMIND_DB` 覆盖。该库为敏感数据，目录与库文件均按仅所有者可访问（`0700` / `0600`）创建。
+## 提供的工具
 
-## 发布（维护者）
+11 个工具的 schema 合计约 3.0K 字符（≈870 tokens）
 
-发布分为**两个独立的 npm 包**：
+| 工具                     | 作用                                                     |
+| ------------------------ | -------------------------------------------------------- |
+| `hitmind_remember`       | 写入一条记忆（走写闸门：去重 / 冲突 / 版本化）           |
+| `hitmind_recall`         | 混合检索（Dense + BM25 + RRF，可选二级精排），返回 top_k |
+| `hitmind_get`            | 按 id 取正文（`history=true` 取版本链）                  |
+| `hitmind_update`         | 版本化更新（不覆盖，保留历史版本）                       |
+| `hitmind_forget`         | 软删除 / 归档                                            |
+| `hitmind_list`           | 分页浏览 / 过滤                                          |
+| `hitmind_reviews`        | 列出待复核记忆（inactive）                               |
+| `hitmind_review_resolve` | 裁决待复核（accept / reject / supersede）                |
+| `hitmind_stats`          | 计数 / 健康 / embedding 状态                             |
+| `hitmind_export`         | 导出记忆为 JSON（备份）                                  |
+| `hitmind_import`         | 从 JSON 导入记忆（校验，merge / replace）                |
 
-| 包 | 内容 | 发布时机 |
-|---|---|---|
-| `dsh-hitmind` | JS adapter（`index.js` / `client.js` / `cordis.patch.yml` / `package.json` / `README.md`） | 每次版本更新 |
-| `dsh-hitmind-runtime-<os>-<arch>` | 单个自包含 `hitmind-daemon` 二进制（PyInstaller onefile，约 12MB） | 每个目标平台各发一次 |
 
-`package.json` 的 `optionalDependencies` 列出了全部支持的平台组合；未发布（404）的平台组合会被 pnpm / npm 视作"不可选"而自动忽略，因此可以分批发布。
 
-### 自动构建发布（推荐，GitHub Actions）
+## **官方链接**
 
-PyInstaller 无法交叉编译，每个平台必须在对应 OS/arch 上原生构建。`.github/workflows/dsh-hitmind-runtime-build.yml` 用 runner 矩阵一次性构建并发布全部平台：
+**Github：**https://github.com/Fishskys/hitmind
 
-| runtime 包 | runner |
-|---|---|
-| `dsh-hitmind-runtime-linux-x64` | `ubuntu-latest` |
-| `dsh-hitmind-runtime-linux-arm64` | `ubuntu-24.04-arm` |
-| `dsh-hitmind-runtime-darwin-arm64` | `macos-latest` |
-| `dsh-hitmind-runtime-darwin-x64` | `macos-15-intel` |
-| `dsh-hitmind-runtime-win32-x64` | `windows-latest` |
+**npmjs：**https://www.npmjs.com/package/dsh-hitmind
 
-- **PR / 手动（publish=false）**：只构建并把各平台 tgz 作为 artifact 上传（矩阵冒烟，不发布）。
-- **打 tag `v*` 或手动 publish=true**：构建并 `npm publish` 全部 runtime 包。
-- 鉴权：推荐 **npm Trusted Publishing（OIDC）**（`id-token: write` 已在 workflow 声明，无需长期 token；需在 npmjs 为每个包配置 trusted publisher，npm≥11.5.1 / Node≥22.14）；或用仓库 secret `NPM_TOKEN`。macOS 构建会 `codesign --sign -` 做 ad-hoc 签名。
-- runtime 版本号由 `build-runtime.sh` 从 `pyproject.toml` 读取（单一来源），adapter 版本需手动同步到同一版本。
-
-### 本地单平台构建（调试用）
-
-```bash
-cd dsh-plugin/runtime
-./build-runtime.sh                 # 构建并打包本机平台到 dist/（不发布）
-./build-runtime.sh --publish       # 额外 npm publish（需 npm 登录）
-# 平台标签可用 HITMIND_RUNTIME_OS / HITMIND_RUNTIME_ARCH 覆盖（CI 用）
-# 解释器默认锁定 CPython 3.12（HITMIND_BUILD_PYTHON 可改），产物约 12MB
-```
-
-> 版本号：adapter 与各 runtime 包应保持相同的 `version`；runtime 来自 `pyproject.toml`，adapter 发版时同步。
