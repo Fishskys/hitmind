@@ -61,12 +61,22 @@ cd "$WORK"
 PYVER="${HITMIND_BUILD_PYTHON:-3.12}"
 if command -v uv >/dev/null 2>&1; then
   uv venv --python "$PYVER" .venv
-  if [ -x .venv/bin/python ]; then VPY=".venv/bin/python"; else VPY=".venv/Scripts/python"; fi
+else
+  python3 -m venv .venv
+fi
+# Locate the venv interpreter cross-platform: POSIX -> .venv/bin/python;
+# Windows -> .venv/Scripts/python.exe (the executable keeps its .exe suffix).
+if [ -f .venv/bin/python ]; then
+  VPY=".venv/bin/python"
+elif [ -f .venv/Scripts/python.exe ]; then
+  VPY=".venv/Scripts/python.exe"
+else
+  VPY=".venv/Scripts/python"
+fi
+if command -v uv >/dev/null 2>&1; then
   uv pip install --python "$VPY" --quiet pyinstaller
   uv pip install --python "$VPY" --quiet -e "$REPO"
 else
-  python3 -m venv .venv
-  if [ -x .venv/bin/python ]; then VPY=".venv/bin/python"; else VPY=".venv/Scripts/python"; fi
   "$VPY" -m pip install --quiet --upgrade pip pyinstaller
   "$VPY" -m pip install --quiet -e "$REPO"
 fi
