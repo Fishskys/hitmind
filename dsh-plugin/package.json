@@ -1,6 +1,6 @@
 {
   "name": "dsh-hitmind",
-  "version": "0.1.0",
+  "version": "0.1.2",
   "type": "module",
   "main": "index.js",
   "license": "MIT",
@@ -49,11 +49,11 @@
     "access": "public"
   },
   "optionalDependencies": {
-    "dsh-hitmind-runtime-linux-x64": "0.1.0",
-    "dsh-hitmind-runtime-linux-arm64": "0.1.0",
-    "dsh-hitmind-runtime-darwin-arm64": "0.1.0",
-    "dsh-hitmind-runtime-darwin-x64": "0.1.0",
-    "dsh-hitmind-runtime-win32-x64": "0.1.0"
+    "dsh-hitmind-runtime-linux-x64": "0.1.2",
+    "dsh-hitmind-runtime-linux-arm64": "0.1.2",
+    "dsh-hitmind-runtime-darwin-arm64": "0.1.2",
+    "dsh-hitmind-runtime-darwin-x64": "0.1.2",
+    "dsh-hitmind-runtime-win32-x64": "0.1.2"
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "~4.1.0",

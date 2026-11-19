@@ -1,0 +1,93 @@
+name: runtime-build
+
+# Build the self-contained HitMind daemon for every supported platform natively
+# (PyInstaller cannot cross-compile), pack each as dsh-hitmind-runtime-<os>-<arch>,
+# and publish them.
+#
+# Triggers:
+#   - pull_request / workflow_dispatch (publish=false): build all platforms and
+#     upload the tarballs as artifacts — a full matrix smoke test with no publish.
+#   - workflow_dispatch with publish=true, or push tag v*: build and publish to
+#     npmjs. Auth is NODE_AUTH_TOKEN (NPM_TOKEN secret) or, preferred, npm Trusted
+#     Publishing / OIDC (see docs/proposals/dsh-npm-publish.md).
+on:
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: "Publish the runtime packages (false = build-only artifacts)"
+        type: boolean
+        default: false
+  push:
+    tags:
+      - "v*"
+  pull_request:
+    paths:
+      - "dsh-plugin/runtime/**"
+      - "hitmind/**"
+      - ".github/workflows/runtime.yml"
+
+permissions:
+  contents: read
+  id-token: write # npm trusted publishing (OIDC) + provenance
+
+jobs:
+  build:
+    name: runtime ${{ matrix.label }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest        # linux-x64
+            plat: linux
+            arch: x64
+            label: linux-x64
+          - os: ubuntu-24.04-arm      # linux-arm64 (native arm64 runner)
+            plat: linux
+            arch: arm64
+            label: linux-arm64
+          - os: macos-latest          # darwin-arm64 (Apple Silicon)
+            plat: darwin
+            arch: arm64
+            label: darwin-arm64
+          - os: macos-15-intel        # darwin-x64 (Intel; macos-13 retired Dec 2025)
+            plat: darwin
+            arch: x64
+            label: darwin-x64
+          - os: windows-latest        # win32-x64
+            plat: win32
+            arch: x64
+            label: win32-x64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v5
+
+      # uv provisions a pinned CPython 3.12 on every OS (incl. Windows), keeping
+      # the onefile binary slim (~12 MB) and identical across runners.
+      - uses: astral-sh/setup-uv@v6
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22        # >=22.14 for trusted publishing / provenance
+          registry-url: https://registry.npmjs.org # writes .npmrc using $NODE_AUTH_TOKEN
+
+      - name: Build + pack runtime
+        shell: bash
+        env:
+          HITMIND_RUNTIME_OS: ${{ matrix.plat }}
+          HITMIND_RUNTIME_ARCH: ${{ matrix.arch }}
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          cd dsh-plugin/runtime
+          if [ "${{ github.event_name }}" = "push" ] || [ "${{ inputs.publish }}" = "true" ]; then
+            ./build-runtime.sh --publish
+          else
+            ./build-runtime.sh
+          fi
+
+      - name: Upload packed tarball
+        uses: actions/upload-artifact@v4
+        with:
+          name: runtime-${{ matrix.label }}
+          path: dsh-plugin/runtime/dist/*.tgz
+          if-no-files-found: error
+          retention-days: 7

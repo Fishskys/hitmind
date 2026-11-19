@@ -1,0 +1,52 @@
+name: publish-adapter
+
+# Publish the JS adapter package `dsh-hitmind` to npmjs. The per-platform runtime
+# packages are built and published by runtime.yml; this workflow handles the
+# adapter itself, and asserts its version matches the release tag so the two
+# package families never drift.
+on:
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: "Publish dsh-hitmind (false = pack/verify only)"
+        type: boolean
+        default: false
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+  id-token: write # npm trusted publishing (OIDC) + provenance
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org # writes .npmrc using $NODE_AUTH_TOKEN
+
+      - name: Verify package.json version matches tag
+        if: startsWith(github.ref, 'refs/tags/v')
+        working-directory: dsh-plugin
+        shell: bash
+        run: |
+          pkg_ver=$(node -p "require('./package.json').version")
+          tag_ver="${GITHUB_REF_NAME#v}"
+          echo "package.json=$pkg_ver  tag=$tag_ver"
+          [ "$pkg_ver" = "$tag_ver" ] || { echo "version mismatch: bump dsh-plugin/package.json"; exit 1; }
+
+      - name: Pack (dry-run file list)
+        working-directory: dsh-plugin
+        run: npm pack --dry-run
+
+      - name: Publish
+        if: ${{ github.event_name == 'push' || inputs.publish == true }}
+        working-directory: dsh-plugin
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm publish --access public

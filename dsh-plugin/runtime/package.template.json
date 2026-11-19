@@ -1,6 +1,6 @@
 {
   "name": "dsh-hitmind-runtime-__PLATFORM__-__ARCH__",
-  "version": "0.1.0",
+  "version": "__VERSION__",
   "description": "Self-contained HitMind daemon binary (hitmind-daemon) for __PLATFORM__-__ARCH__. Installed automatically as an optional dependency of dsh-hitmind so the plugin needs no Python runtime.",
   "license": "MIT",
   "homepage": "https://github.com/Fishskys/hitmind",

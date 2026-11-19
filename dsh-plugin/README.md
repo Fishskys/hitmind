@@ -36,18 +36,33 @@ dsh plugin --profile <name> add dsh-hitmind
 | `dsh-hitmind` | JS adapter（`index.js` / `client.js` / `cordis.patch.yml` / `package.json` / `README.md`） | 每次版本更新 |
 | `dsh-hitmind-runtime-<os>-<arch>` | 单个自包含 `hitmind-daemon` 二进制（PyInstaller onefile，约 12MB） | 每个目标平台各发一次 |
 
-`package.json` 的 `optionalDependencies` 列出了全部支持的平台组合；未发布（404）的平台组合会被 pnpm / npm 视作"不可选"而自动忽略，因此可以只为已构建的平台发 runtime，其余等构建后再补发。
+`package.json` 的 `optionalDependencies` 列出了全部支持的平台组合；未发布（404）的平台组合会被 pnpm / npm 视作"不可选"而自动忽略，因此可以分批发布。
+
+### 自动构建发布（推荐，GitHub Actions）
+
+PyInstaller 无法交叉编译，每个平台必须在对应 OS/arch 上原生构建。`.github/workflows/runtime.yml` 用 runner 矩阵一次性构建并发布全部平台：
+
+| runtime 包 | runner |
+|---|---|
+| `dsh-hitmind-runtime-linux-x64` | `ubuntu-latest` |
+| `dsh-hitmind-runtime-linux-arm64` | `ubuntu-24.04-arm` |
+| `dsh-hitmind-runtime-darwin-arm64` | `macos-latest` |
+| `dsh-hitmind-runtime-darwin-x64` | `macos-15-intel` |
+| `dsh-hitmind-runtime-win32-x64` | `windows-latest` |
+
+- **PR / 手动（publish=false）**：只构建并把各平台 tgz 作为 artifact 上传（矩阵冒烟，不发布）。
+- **打 tag `v*` 或手动 publish=true**：构建并 `npm publish` 全部 runtime 包。
+- 鉴权：推荐 **npm Trusted Publishing（OIDC）**（`id-token: write` 已在 workflow 声明，无需长期 token；需在 npmjs 为每个包配置 trusted publisher，npm≥11.5.1 / Node≥22.14）；或用仓库 secret `NPM_TOKEN`。macOS 构建会 `codesign --sign -` 做 ad-hoc 签名。
+- runtime 版本号由 `build-runtime.sh` 从 `pyproject.toml` 读取（单一来源），adapter 版本需手动同步到同一版本。
+
+### 本地单平台构建（调试用）
 
 ```bash
-# 1) 构建并发布本机平台的 runtime 包（内含二进制）
 cd dsh-plugin/runtime
-./build-runtime.sh --publish          # linux-x64 示例
-
-# 2) 发布 adapter（其 optionalDependencies 指向上面各 runtime 包）
-cd dsh-plugin
-npm publish --access public
+./build-runtime.sh                 # 构建并打包本机平台到 dist/（不发布）
+./build-runtime.sh --publish       # 额外 npm publish（需 npm 登录）
+# 平台标签可用 HITMIND_RUNTIME_OS / HITMIND_RUNTIME_ARCH 覆盖（CI 用）
+# 解释器默认锁定 CPython 3.12（HITMIND_BUILD_PYTHON 可改），产物约 12MB
 ```
 
-`build-runtime.sh` 会自动识别本机 `os`/`arch`，构建自包含二进制并按模板组装 `dsh-hitmind-runtime-<os>-<arch>` 后 `npm publish`。其他平台需在对应平台（或对应架构的构建环境/CI）上分别执行。
-
-> 版本号：adapter 与各 runtime 包应保持相同的 `version`，并随每次二进制重建一同升级。
+> 版本号：adapter 与各 runtime 包应保持相同的 `version`；runtime 来自 `pyproject.toml`，adapter 发版时同步。
