@@ -95,6 +95,9 @@ mkdir -p "$HERE/dist"
 echo "[build-runtime] packed -> $HERE/dist/dsh-hitmind-runtime-$OS-$ARCH-$VERSION.tgz"
 
 if [ "$PUBLISH" = "--publish" ]; then
-  ( cd "$PKG" && npm publish --access public )
+  # provenance is off by default so a bare Granular Access Token can publish
+  # (provenance needs an OIDC-capable identity and triggers an account-read the
+  # token may lack). Set NPM_PROVENANCE=true when publishing via OIDC.
+  ( cd "$PKG" && npm publish --access public --provenance="${NPM_PROVENANCE:-false}" )
   echo "[build-runtime] published dsh-hitmind-runtime-$OS-$ARCH@$VERSION"
 fi
