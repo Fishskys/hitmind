@@ -4,6 +4,29 @@
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-11-19
+
+DSH（DeepSeek Harness）原生插件首次发布（npm），并把配置与工具定义收敛为单一事实源。
+
+### Added
+- **DeepSeek Harness 原生插件**：`dsh-hitmind`（JS adapter，`defineTool` 11 工具 + 每轮自动注入 + 会话/压缩捕获 + 浏览器配置卡），Python core 以自包含 `hitmind-daemon` stdio sidecar 运行——用户无需安装 Python。
+- **多平台 runtime 分包**：`dsh-hitmind-runtime-<os>-<arch>`（linux-x64/arm64、darwin-arm64/x64、win32-x64），adapter 经 `optionalDependencies` + `os`/`cpu` 自动选装；GitHub Actions runner 矩阵原生构建并**以 Trusted Publishing（OIDC）+ provenance 发布**到 npm。
+- `hitmind/daemon.py`：宿主无关的 stdio JSON-RPC sidecar（含 `DaemonTurnStore` 会话/压缩去重、`ingest_compaction` 幂等全量抽取）。
+- `hitmind/settings_spec.py`：配置**单一事实源**（56 项），同时驱动 Hermes `config_schema`、Hermes 适配器与 DSH daemon 的引擎参数，杜绝默认值漂移。
+- `hitmind/tools.py`：11 个工具 schema + dispatch 的**单一事实源**，Hermes、MCP、DSH 三端一致。
+- `hitmind/capture_policy.py`：捕获决策唯一实现（`should_capture`），Hermes 与 DSH 共用。
+- DSH 插件页本地化元数据（`locale/en.json`、`locale/zh.json`）。
+- README：MCP 服务章节（启动/自检/客户端配置片段）、开源协议小节。
+
+### Changed
+- 配置与工具定义从各端各自维护改为单一事实源生成（行为不变，消除漂移）。
+- 移除 Hermes 适配器中重复的工具/配置定义，改由 `settings_spec` / `tools` 驱动。
+
+### Fixed
+- 记忆库文件权限收紧为**仅所有者可访问**（目录 `0700`、库文件 `0600`，`core/db.py`）。
+- DSH daemon 默认库路径父目录自动创建（多层嵌套亦可）。
+- 跨平台构建：Windows venv 解释器（`Scripts/python.exe`）识别、锁定 CPython 3.12（产物 ~12MB）、macOS ad-hoc 签名。
+
 ## [0.1.2] - 2026-11-14
 
 ### Added
@@ -44,7 +67,8 @@
 - 接口与配置：Hermes 原生绑定 + MCP（stdio）；桌面配置页全量参数化；JSON 记忆导出 / 导入。
 - 工程保障：外部调用（LLM / embedding / rerank）超时与连续失败熔断、自动降级；提交前敏感信息检查（pre-commit）。
 
-[Unreleased]: https://github.com/Fishskys/hitmind/compare/v0.1.2...HEAD
+[Unreleased]: https://github.com/Fishskys/hitmind/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/Fishskys/hitmind/compare/v0.1.3...v0.2.0
 [0.1.2]: https://github.com/Fishskys/hitmind/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/Fishskys/hitmind/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/Fishskys/hitmind/releases/tag/v0.1.0
