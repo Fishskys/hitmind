@@ -15,7 +15,7 @@
 # Requirements: a Python 3.11+ with pip, plus `uv` (preferred) or a venv. PyInstaller
 # produces a single-file executable (~12 MB; CPython + SQLite runtime bundled) and
 # CANNOT cross-compile, so each platform/arch must be built on a matching machine
-# (the GitHub Actions matrix in .github/workflows/runtime.yml does exactly this).
+# (the GitHub Actions matrix in .github/workflows/dsh-hitmind-runtime-build.yml does exactly this).
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

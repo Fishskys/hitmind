@@ -1,4 +1,4 @@
-name: runtime-build
+name: dsh-hitmind-runtime-build
 
 # Build the self-contained HitMind daemon for every supported platform natively
 # (PyInstaller cannot cross-compile), pack each as dsh-hitmind-runtime-<os>-<arch>,
@@ -24,7 +24,7 @@ on:
     paths:
       - "dsh-plugin/runtime/**"
       - "hitmind/**"
-      - ".github/workflows/runtime.yml"
+      - ".github/workflows/dsh-hitmind-runtime-build.yml"
 
 permissions:
   contents: read

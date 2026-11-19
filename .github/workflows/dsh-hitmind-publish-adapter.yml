@@ -1,7 +1,7 @@
-name: publish-adapter
+name: dsh-hitmind-publish-adapter
 
 # Publish the JS adapter package `dsh-hitmind` to npmjs. The per-platform runtime
-# packages are built and published by runtime.yml; this workflow handles the
+# packages are built and published by dsh-hitmind-runtime-build.yml; this workflow handles the
 # adapter itself, and asserts its version matches the release tag so the two
 # package families never drift.
 on:

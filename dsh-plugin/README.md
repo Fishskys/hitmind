@@ -40,7 +40,7 @@ dsh plugin --profile <name> add dsh-hitmind
 
 ### 自动构建发布（推荐，GitHub Actions）
 
-PyInstaller 无法交叉编译，每个平台必须在对应 OS/arch 上原生构建。`.github/workflows/runtime.yml` 用 runner 矩阵一次性构建并发布全部平台：
+PyInstaller 无法交叉编译，每个平台必须在对应 OS/arch 上原生构建。`.github/workflows/dsh-hitmind-runtime-build.yml` 用 runner 矩阵一次性构建并发布全部平台：
 
 | runtime 包 | runner |
 |---|---|
