@@ -278,9 +278,9 @@ class Daemon:
         self._sync_roles = _pr(os.environ.get("HITMIND_SYNC_ROLES", "user"))
         self._skip_contexts = _pc(os.environ.get("HITMIND_SKIP_CONTEXTS", ""))
         try:
-            self._user_min = int(os.environ.get("HITMIND_SYNC_USER_MIN", "5"))
+            self._user_min = int(os.environ.get("HITMIND_SYNC_USER_MIN", "0"))
         except (TypeError, ValueError):
-            self._user_min = 5
+            self._user_min = 0
         try:
             self._assistant_min = int(os.environ.get("HITMIND_SYNC_ASSISTANT_MIN", "10"))
         except (TypeError, ValueError):

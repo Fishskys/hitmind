@@ -92,7 +92,7 @@ class HitMindMemoryProvider(MemoryProvider):  # type: ignore[misc]
         # these are just placeholders so the object is usable before init.
         self._skip_contexts: set[str] = set()
         self._sync_roles: set[str] = {"user"}
-        self._user_min_len = 5
+        self._user_min_len = 0
         self._assistant_min_len = 10
         # actually taken from the Engine (consolidate_every_turns) after initialize()
         self._sync_consolidate_every = 10
@@ -230,7 +230,7 @@ class HitMindMemoryProvider(MemoryProvider):  # type: ignore[misc]
             r.strip().lower()
             for r in str(self._config_value("sync_roles", "HITMIND_SYNC_ROLES", "user")).split(",") if r.strip()
         } & {"user", "assistant"}
-        self._user_min_len = self._config_value("sync_user_min", "HITMIND_SYNC_USER_MIN", 5, int)
+        self._user_min_len = self._config_value("sync_user_min", "HITMIND_SYNC_USER_MIN", 0, int)
         self._assistant_min_len = self._config_value("sync_assistant_min", "HITMIND_SYNC_ASSISTANT_MIN", 10, int)
         self._skip_contexts = {
             s.strip().lower() for s in str(self._config_value(

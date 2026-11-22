@@ -80,7 +80,7 @@ export const Config = Schema.object({
   bgRunner: Schema.boolean().default(true).volatile(),
   // -- 记忆抽取 --
   syncRoles: Schema.string().default('user').volatile(),
-  syncUserMin: Schema.number().default(5).volatile(),
+  syncUserMin: Schema.number().default(0).volatile(),
   syncAssistantMin: Schema.number().default(10).volatile(),
   consolidateEveryTurns: Schema.number().default(10).volatile(),
   memoryMaxChars: Schema.number().default(1024).volatile(),
@@ -137,7 +137,7 @@ const CFG_ENV = [
   ['consolidateLlmEnabled', 'HITMIND_CONSOLIDATE_LLM_ENABLED', 'b', true],
   ['bgRunner', 'HITMIND_BG_RUNNER', 'b', true],
   ['syncRoles', 'HITMIND_SYNC_ROLES', 's', 'user'],
-  ['syncUserMin', 'HITMIND_SYNC_USER_MIN', 'i', 5],
+  ['syncUserMin', 'HITMIND_SYNC_USER_MIN', 'i', 0],
   ['syncAssistantMin', 'HITMIND_SYNC_ASSISTANT_MIN', 'i', 10],
   ['consolidateEveryTurns', 'HITMIND_SYNC_CONSOLIDATE_EVERY', 'i', 10],
   ['memoryMaxChars', 'HITMIND_MEMORY_MAX_CHARS', 'i', 1024],
@@ -573,7 +573,7 @@ export async function apply(ctx, config) {
     // capture-policy inputs, read live from volatile config (change takes effect next turn)
     const capRoles = () => parseRoles(rv(cfg.syncRoles, 'user'))
     const capSkip = () => parseContexts(rv(cfg.skipContexts, ''))
-    const capUMin = () => Number(rv(cfg.syncUserMin, 5))
+    const capUMin = () => Number(rv(cfg.syncUserMin, 0))
     const capAMin = () => Number(rv(cfg.syncAssistantMin, 10))
     ctx.on('session/event', (session, event) => {
       try {
