@@ -1,5 +1,5 @@
 name: hitmind
-version: 0.2.0
+version: 0.2.1
 description: "HitMind — local-first, lightweight, multi-agent long-term memory (SQLite, hybrid recall)."
 config_keys:
   - memory.hitmind

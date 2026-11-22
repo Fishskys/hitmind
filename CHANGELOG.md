@@ -4,6 +4,28 @@
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-11-22
+
+统一、隐私安全的日志系统，并修复导致 chat 批次在网关中长期不产出记忆的两处问题（跨线程读取 + 短消息被过滤）。
+
+### Added
+- **统一日志系统**（`hitmind/logging_setup.py`，纯标准库）：统一格式 `YYYY-MM-DD HH:MM:SS.mmm [组件] [级别] 内容`，五级 `DEBUG/INFO/WARNING/ERROR/CRITICAL`，组件标签区分 `hitmind-core` / `hitmind-hermes` / `hitmind-mcp` / `hitmind-dsh`。
+- **优先接入宿主日志系统**：Hermes 场景只设 `hitmind` logger 级别并开启传播，日志经宿主既有的根 handler（如 `agent.log`）输出、沿用宿主格式；**不改根 logger 级别、不挂 handler、零全局副作用**（`use_host_logging()`）。
+- **独立进程本地落盘**：MCP server / stdio daemon 使用 `RotatingFileHandler`（默认库同级 `logs/hitmind.log`，按大小轮转；daemon 另镜像 stderr），**从不写 stdout**（协议通道）。
+- **后台任务与关键路径审计**：chat 批次 / topic / review 的每轮结果、`ingest_compaction` 摘要、启动配置快照（version/platform/关键参数）；`note_activity` 的阈值判定、capture-policy 跳过原因、chat 批次各跳过原因均带 **per-session 原因**（仅计数与 id，绝不含正文）。
+- 新增配置分组「日志」：`log_level`（五级，默认 `INFO`）、`log_file`（`auto`/`stderr`/路径），同步到 DSH 插件；`.env.example` 补充 `LOG_*` 变量。
+- 文档：`06` 增「§6 日志与可观测性」与「排查指南（临时开 DEBUG + 症状→日志行对照）」。
+
+### Changed
+- `sync_user_min` 默认由 `5` 改为 `0`（不再按长度丢弃短 user 消息；空消息仍被清洗），避免连续短回复（如「已重启」）绕过 `note_activity`、致 chat 批次迟迟不触发。
+
+### Fixed
+- **chat 批次抽取在网关中长期不产出记忆**：`StateDBSource` 的 SQLite 连接改为 `check_same_thread=False` 并加锁——`note_activity` 在回合线程、`process_chat_batch` 在闲时后台线程，原线程亲和连接跨线程读取被静默吞成空结果，导致每批读 0 行；同时**批阈值改按真实 user 回合计数**（`count_turns_after`，不再按 assistant/tool 翻倍的行数），修复阈值被工具调用行数撑大而失真。
+- Hermes 宿主日志接入不再污染网关根 logger（修正早先“探测 `ctx.logger`→回退 stderr 并改根级别/挂 handler”的全局副作用）。
+
+### Security
+- 日志隐私红线：绝不记录记忆正文、原始对话、Episode 摘要、LLM Prompt、API Key；仅记结构 / 状态 / 计数 / 错误，并带超长截断与密钥 `[REDACTED]` 兜底。
+
 ## [0.2.0] - 2026-11-19
 
 DSH（DeepSeek Harness）原生插件首次发布（npm），并把配置与工具定义收敛为单一事实源。
@@ -67,7 +89,8 @@ DSH（DeepSeek Harness）原生插件首次发布（npm），并把配置与工�
 - 接口与配置：Hermes 原生绑定 + MCP（stdio）；桌面配置页全量参数化；JSON 记忆导出 / 导入。
 - 工程保障：外部调用（LLM / embedding / rerank）超时与连续失败熔断、自动降级；提交前敏感信息检查（pre-commit）。
 
-[Unreleased]: https://github.com/Fishskys/hitmind/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/Fishskys/hitmind/compare/v0.2.1...HEAD
+[0.2.1]: https://github.com/Fishskys/hitmind/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/Fishskys/hitmind/compare/v0.1.3...v0.2.0
 [0.1.2]: https://github.com/Fishskys/hitmind/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/Fishskys/hitmind/compare/v0.1.0...v0.1.1
