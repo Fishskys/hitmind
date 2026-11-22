@@ -114,3 +114,20 @@ Core 是嵌入式 Python 库，可被宿主进程直接 import。按宿主能力
 
 **隐私红线（硬规则）**：绝不写记忆正文、原始对话、Episode 摘要、LLM Prompt、API Key/密钥；日志只记结构/跳过原因/计数/错误。`sanitize()` 仅作最后兜底（截断超长消息 + 对 Bearer/api_key/sk-/URL 内凭据做 `[REDACTED]`），**不能替代"根本不传入敏感值"的纪律**。
 
+### 6.1 排障指南（Troubleshooting）
+
+**开 DEBUG**：大量决策日志是 DEBUG 级（默认 INFO 看不到）。临时排障时设 `HITMIND_LOG_LEVEL=DEBUG`（或 `hitmind/config.json` 的 `log_level`）后重启对应进程/Hermes 网关即可；排查完记得调回 INFO。
+
+**"为什么某个会话一直没产出记忆？"——按链路看这几行日志**：
+
+| 症状 | 先看这行日志 | 说明 |
+|---|---|---|
+| 消息根本没被捕获 | `sync_turn skip capture sid= role=user len= user_min=`（DEBUG） | 被 capture_policy 挡掉（多为字数门槛）。改 `sync_user_min`（默认 0=不限）。|
+| 没到触发线 | `note_activity sid= cursor= unprocessed= threshold= pending=`（DEBUG） | 看未处理回合数 vs 阈值(=2×`consolidate_every_turns`)。|
+| 到了线但没置位 | `note_activity` 无输出 + `chat batch due`（INFO）缺失 | state_source 不可用或无会话（`note_activity skip`）。|
+| 置位了但没抽 | `chat_batch skip sid= reason=empty/no_llm/llm_failed/cooldown`（INFO/WARNING） | 逐条原因：empty=读不到消息；no_llm=宿主 LLM 不可用；llm_failed=抽取返回非法；cooldown=连续失败冷却。|
+| 抽取在读时异常 | `state.db read failed (...)`（WARNING） | state.db 读取异常（如连接/线程/权限问题）。|
+| 跑了哪版/什么配置 | 启动行 `hitmind ready version= ... consolidate_every_turns= ... sync_user_min= ...`（INFO） | 一眼确认版本与关键配置，排除"跑了旧代码"。|
+
+后台 idle runner 每轮若有待处理会话，会打一行 `chat_batch pass sessions= committed= deferred= failed= cooling=`（INFO）；`deferred` 表示会话仍活跃（未空闲满 `idle_consolidate_seconds`，默认 300s）而顺延到下一空闲窗口。
+
