@@ -14,7 +14,6 @@ back to ``object`` so the module still imports in isolation.
 from __future__ import annotations
 
 import json
-import logging
 import os
 import threading
 from pathlib import Path
@@ -22,12 +21,33 @@ from typing import Any
 
 from ...core import models
 from ...core.engine import Engine, make_embedder_from_env
+from ...logging_setup import HERMES, get_logger, install_host_logging
 from ...tools import _TOOL_MAP, _TOOL_SCHEMAS  # host-agnostic single source of truth
 from .envelope import sanitize_user_content
 from .llm import HostClusterLLM
 from .tasks import BackgroundTaskRunner
 
-logger = logging.getLogger(__name__)
+logger = get_logger(HERMES)
+
+
+def _resolve_host_logger(ctx):
+    """Best-effort: find the real host logger on the plugin ctx (or its underlying
+    PluginContext). Returns None when the host exposes no logger — the caller then
+    leaves the built-in fallback (or the host's own root logging) in charge."""
+    candidates = [ctx]
+    pctx = getattr(ctx, "_plugin_context", None)
+    if callable(pctx):
+        try:
+            candidates.append(pctx())
+        except Exception:  # pragma: no cover - host-specific
+            pass
+    for c in candidates:
+        if c is None:
+            continue
+        lg = getattr(c, "logger", None) or getattr(c, "log", None)
+        if lg is not None:
+            return lg
+    return None
 
 try:  # pragma: no cover - depends on host
     from agent.memory_provider import MemoryProvider  # type: ignore
@@ -76,7 +96,7 @@ def _register_tools_with_host(ctx) -> bool:
             register_tool(name=nm, toolset="hitmind", schema=schema,
                           handler=_handler, description=schema.get("description", ""))
         except Exception as exc:  # a secondary registration must not break the provider
-            logger.debug("hitmind register_tool(%s) skipped: %s", nm, exc)
+            logger.debug("register_tool(%s) skipped: %s", nm, exc)
     return True
 
 
@@ -130,7 +150,7 @@ class HitMindMemoryProvider(MemoryProvider):  # type: ignore[misc]
         try:
             return cast(raw)
         except (TypeError, ValueError):
-            logger.warning("hitmind: bad value for %s=%r; using default %r", key, raw, default)
+            logger.warning("bad value for %s=%r; using default %r", key, raw, default)
             return default
 
     @staticmethod
@@ -144,7 +164,7 @@ class HitMindMemoryProvider(MemoryProvider):  # type: ignore[misc]
                 data = json.loads(path.read_text(encoding="utf-8-sig"))
                 return data if isinstance(data, dict) else {}
         except Exception as exc:  # pragma: no cover
-            logger.debug("hitmind: cannot read %s: %s", path, exc)
+            logger.debug("cannot read %s: %s", path, exc)
         return {}
 
     def _config_bool(self, key: str, env: str, default: bool) -> bool:
@@ -249,7 +269,7 @@ class HitMindMemoryProvider(MemoryProvider):  # type: ignore[misc]
                 plugin_ctx = plugin_ctx._plugin_context()
             plugin_llm = getattr(plugin_ctx, "llm", None) if plugin_ctx is not None else None
         except Exception as exc:  # pragma: no cover
-            logger.debug("hitmind: ctx.llm unavailable: %s", exc)
+            logger.debug("ctx.llm unavailable: %s", exc)
             plugin_llm = None
         self._engine._llm = HostClusterLLM(plugin_llm) if plugin_llm is not None else None
         if self._engine._llm is not None:
@@ -264,21 +284,21 @@ class HitMindMemoryProvider(MemoryProvider):  # type: ignore[misc]
             from ...core.state_source import StateDBSource
             self._engine.state_source = StateDBSource(Path(hermes_home) / "state.db")
         except Exception as exc:  # pragma: no cover
-            logger.debug("hitmind: state.db source unavailable: %s", exc)
+            logger.debug("state.db source unavailable: %s", exc)
         # ---- extensible idle tasks: chat batch + topic aggregation ----
         try:
             self._engine.register_pending_task("chat_batch", self._engine.process_pending)
             self._engine.register_pending_task("topic", self._engine.run_topic_task)
             self._engine.register_pending_task("review", self._engine.run_review_task)
         except Exception as exc:  # pragma: no cover
-            logger.debug("hitmind: pending task registration skipped: %s", exc)
+            logger.debug("pending task registration skipped: %s", exc)
         # ---- start the idle/background runner (daemon, off the hot path) ----
         if self._auto_runner and self._engine.idle_consolidate_seconds > 0:
             try:
                 self._runner = BackgroundTaskRunner(self._engine, poll_seconds=self._engine.idle_poll_seconds)
                 self._runner.start()
             except Exception as exc:  # pragma: no cover
-                logger.debug("hitmind: idle runner start skipped: %s", exc)
+                logger.debug("idle runner start skipped: %s", exc)
 
     def system_prompt_block(self) -> str:
         return (
@@ -293,7 +313,7 @@ class HitMindMemoryProvider(MemoryProvider):  # type: ignore[misc]
         try:
             res = self._engine.recall(query, top_k=self._engine.recall_top_k)
         except Exception as exc:  # fail-open with signal
-            logger.warning("hitmind prefetch failed: %s", exc)
+            logger.warning("prefetch failed: %s", exc)
             return ""
         items = (res.get("data") or {}).get("results") or []
         lines: list[str] = []
@@ -344,7 +364,7 @@ class HitMindMemoryProvider(MemoryProvider):  # type: ignore[misc]
             if (data.get("pending") or data.get("review_due")) and self._runner is not None:
                 self._runner.wake()
         except Exception as exc:
-            logger.warning("hitmind sync_turn failed: %s", exc)
+            logger.warning("sync_turn failed: %s", exc)
 
     def on_session_end(self, messages: list | None = None, **kwargs: Any) -> None:
         """Real session boundary: flush any pending chat batch (process its tail even if
@@ -359,7 +379,7 @@ class HitMindMemoryProvider(MemoryProvider):  # type: ignore[misc]
             try:
                 self._engine.flush_session(sid)
             except Exception as exc:
-                logger.warning("hitmind session-end flush failed: %s", exc)
+                logger.warning("session-end flush failed: %s", exc)
 
         threading.Thread(target=_flush, daemon=True).start()
 
@@ -386,7 +406,7 @@ class HitMindMemoryProvider(MemoryProvider):  # type: ignore[misc]
                 if summary:
                     self._engine.ingest_compaction(sid, summary, mode=self._mode)
             except Exception as exc:
-                logger.warning("hitmind compaction capture failed: %s", exc)
+                logger.warning("compaction capture failed: %s", exc)
 
         threading.Thread(target=_work, daemon=True).start()
 
@@ -425,6 +445,27 @@ class HitMindMemoryProvider(MemoryProvider):  # type: ignore[misc]
 
 def register(ctx) -> None:
     """Hermes memory-loader entry point."""
+    # Preferred: route HitMind logs into the HOST's logging system (before anything
+    # else logs). Host-controlled rotation/retention; we do NOT also write a local
+    # file here (that per-host durability belongs to the standalone MCP path).
+    try:
+        host_logger = _resolve_host_logger(ctx)
+        hermes_home = os.environ.get("HERMES_HOME") or str(Path.home() / ".hermes")
+        db_path = str(Path(hermes_home) / "hitmind" / "data" / "hitmind.db")
+        try:
+            _cfg = HitMindMemoryProvider._read_native_config(hermes_home)
+        except Exception:  # pragma: no cover - defensive
+            _cfg = {}
+        _level = _cfg.get("log_level")
+        if host_logger is not None:
+            install_host_logging(host_logger, level=_level, db_path=db_path, component=HERMES)
+        else:
+            # No host logger surface -> stderr-only fallback (no disk writes; the host's
+            # own root logging still receives propagated records).
+            from ...logging_setup import configure as _configure
+            _configure(level=_level, log_file="stderr", stderr=True, component=HERMES)
+    except Exception:  # pragma: no cover - logging must never break registration
+        pass
     try:
         provider = HitMindMemoryProvider()
         provider._plugin_ctx = ctx
@@ -436,7 +477,7 @@ def register(ctx) -> None:
             if _register_tools_with_host(ctx):
                 provider._registry_mode = True
         except Exception as exc:  # pragma: no cover - non-fatal
-            logger.debug("hitmind registry tool registration skipped: %s", exc)
+            logger.debug("registry tool registration skipped: %s", exc)
         # Register our auxiliary LLM task so the user can pick provider/model for
         # topic finalization in the standard `auxiliary.hitmind_topic` config (and
         # the picker). Unset -> host falls back to the main model automatically.
@@ -448,16 +489,16 @@ def register(ctx) -> None:
                 inherit_from="compression",
             )
         except Exception as exc:  # pragma: no cover - non-fatal
-            logger.debug("hitmind auxiliary task registration skipped: %s", exc)
+            logger.debug("auxiliary task registration skipped: %s", exc)
         # work-mode capture trigger: distill each committed compaction segment.
         try:
             ctx.register_hook("post_compaction", provider.on_post_compaction)
         except Exception as exc:  # pragma: no cover - non-fatal
-            logger.debug("hitmind post_compaction hook registration skipped: %s", exc)
+            logger.debug("post_compaction hook registration skipped: %s", exc)
         # chat: flush a pending batch at a real session boundary (tail safety).
         try:
             ctx.register_hook("on_session_end", provider.on_session_end)
         except Exception as exc:  # pragma: no cover - non-fatal
-            logger.debug("hitmind on_session_end hook registration skipped: %s", exc)
+            logger.debug("on_session_end hook registration skipped: %s", exc)
     except Exception as exc:  # pragma: no cover
-        logger.warning("hitmind register failed: %s", exc)
+        logger.warning("register failed: %s", exc)

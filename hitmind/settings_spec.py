@@ -34,6 +34,7 @@ G_IMPORTANCE = "重要性"
 G_TOPIC = "Topic 聚类"
 G_LIFE = "生命周期管理"
 G_MODEL = "模型配置"
+G_LOG = "日志"
 
 
 @dataclass(frozen=True)
@@ -224,6 +225,16 @@ SETTINGS: tuple[Setting, ...] = (
             engine_arg="consolidate_llm_enabled", cast="bool"),
     Setting("bg_runner", "HITMIND_BG_RUNNER", K_BOOL, True, "启用闲时后台线程",
             "关闭后 chat 批次与 topic 整理不会自动运行。", G_MODEL, cast="bool"),
+
+    # ============================ 日志 ============================ #
+    Setting("log_level", "HITMIND_LOG_LEVEL", K_SELECT, "INFO", "日志级别",
+            "DEBUG/INFO/WARNING/ERROR/CRITICAL。INFO 只记录必要事件（关键写/召回、"
+            "后台任务结果、错误）；DEBUG 用于细粒度排查。绝不记录记忆正文/对话/摘要/Prompt/密钥。",
+            G_LOG, options=(("DEBUG", "DEBUG"), ("INFO", "INFO"),
+                            ("WARNING", "WARNING"), ("ERROR", "ERROR"), ("CRITICAL", "CRITICAL"))),
+    Setting("log_file", "HITMIND_LOG_FILE", K_TEXT, "auto", "日志文件位置",
+            "auto=写到数据库同级的 logs/ 目录并按大小轮转；填 stderr=不落盘只输出到 stderr；"
+            "或填绝对/相对文件路径。接入宿主日志系统时另镜像一份到该文件。", G_LOG),
 )
 
 # Fast lookups.

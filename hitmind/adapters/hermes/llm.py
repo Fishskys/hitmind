@@ -12,12 +12,13 @@ the ``ctx.llm`` object at initialize() time.
 
 from __future__ import annotations
 
-import logging
 import os
 import threading
 from typing import Any
 
-logger = logging.getLogger(__name__)
+from ...logging_setup import HERMES, get_logger
+
+logger = get_logger(HERMES)
 
 TASK_KEY = "hitmind_topic"
 
@@ -126,7 +127,7 @@ class HostClusterLLM:
                 HARD_TIMEOUT_S,
             )
             if exc is not None:
-                logger.debug("hitmind structured call %r failed: %s", extra.get("task"), exc)
+                logger.debug("structured call %r failed: %s", extra.get("task"), exc)
                 continue
             parsed = getattr(res, "parsed", None)
             if isinstance(parsed, dict):

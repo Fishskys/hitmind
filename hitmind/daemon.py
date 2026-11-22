@@ -31,7 +31,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import logging
 import os
 import sys
 import threading
@@ -43,9 +42,11 @@ from .adapters.hermes.llm import HostClusterLLM
 from .adapters.hermes.tasks import BackgroundTaskRunner
 from .core import models
 from .core.engine import Engine, make_embedder_from_env, make_reranker_from_env
+from .logging_setup import DSH, get_logger
+from .logging_setup import configure as configure_logging
 from .tools import _TOOL_SCHEMAS, dispatch
 
-logger = logging.getLogger("hitmind.daemon")
+logger = get_logger(DSH)
 
 
 # --------------------------------------------------------------------------- #
@@ -475,7 +476,7 @@ class Daemon:
     def serve_forever(self) -> int:
         if self.runner is not None:
             self.runner.start()
-        logger.info("hitmind daemon ready (db=%s agent=%s)", self.db_path, self.agent_id)
+        logger.info("daemon ready (db=%s agent=%s)", self.db_path, self.agent_id)
         try:
             for raw in sys.stdin:
                 raw = raw.strip()
@@ -549,12 +550,13 @@ def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser("hitmind-daemon")
     ap.add_argument("--db", default=None)
     ap.add_argument("--agent-id", default=os.environ.get("HITMIND_AGENT_ID", "dsh"))
-    ap.add_argument("--log-level", default=os.environ.get("HITMIND_LOG_LEVEL", "INFO"))
+    ap.add_argument("--log-level", default=None)
     args = ap.parse_args(argv)
-    logging.basicConfig(level=getattr(logging, str(args.log_level).upper(), logging.INFO),
-                        stream=sys.stderr,
-                        format="%(asctime)s %(levelname)s %(name)s: %(message)s")
-    daemon = Daemon(_db_path(args.db), agent_id=args.agent_id)
+    db_path = _db_path(args.db)
+    # Standalone process (no host logging surface): write a local rotating log beside
+    # the DB and mirror to stderr (the host plugin captures stderr line-by-line).
+    configure_logging(level=args.log_level, db_path=db_path, stderr=True, component=DSH)
+    daemon = Daemon(db_path, agent_id=args.agent_id)
     return daemon.serve_forever()
 
 

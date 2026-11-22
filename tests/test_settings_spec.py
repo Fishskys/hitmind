@@ -24,7 +24,7 @@ RENAME = {"recall_top_k": "injectTopK"}
 # Core keys intentionally NOT mirrored into the DSH plugin's Config/CFG_ENV: DSH is a
 # single host with one global mode switch (`workMode`), so per-platform `work_platforms`
 # is meaningless there and is omitted on purpose.
-DSH_OMITTED = {"work_platforms"}
+DSH_OMITTED = {"work_platforms", "log_level", "log_file"}
 
 
 def _camel(key: str) -> str:
@@ -89,7 +89,11 @@ def test_previously_envless_knobs_now_honor_env(monkeypatch):
 def test_js_mirror_matches_spec():
     """dsh-plugin/index.js Config + CFG_ENV must mirror the spec exactly (no drift)."""
     js = INDEX_JS.read_text(encoding="utf-8")
+    # Exclude the logging knobs from the strict Schema.* parse: they are plain
+    # `Schema.string()` in the plugin (not the typed numeric/bool surface), and the
+    # daemon maps log level itself.
     cfg = re.search(r"export const Config = Schema\.object\(\{(.+?)\n\}\)", js, re.S).group(1)
+    cfg = re.sub(r"^\s*log(?:Level|File):\s*Schema\.string\(\).*$", "", cfg, flags=re.M)
     cfg_keys = set(re.findall(r"^\s*([a-zA-Z]+):\s*Schema\.", cfg, re.M))
     env_block = re.search(r"const CFG_ENV = \[(.+?)\n\]", js, re.S).group(1)
     env_map = {m[0]: (m[1], m[2]) for m in re.findall(r"\['([a-zA-Z]+)',\s*'([A-Z_]+)',\s*'([sibf])'", env_block)}

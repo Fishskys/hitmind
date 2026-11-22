@@ -78,6 +78,9 @@ export const Config = Schema.object({
   llmTimeoutS: Schema.number().default(90).volatile(),
   consolidateLlmEnabled: Schema.boolean().default(true).volatile(),
   bgRunner: Schema.boolean().default(true).volatile(),
+  // -- 日志 --
+  logLevel: Schema.string().default('INFO').volatile(),
+  logFile: Schema.string().default('auto').volatile(),
   // -- 记忆抽取 --
   syncRoles: Schema.string().default('user').volatile(),
   syncUserMin: Schema.number().default(0).volatile(),
@@ -136,6 +139,8 @@ const CFG_ENV = [
   ['llmTimeoutS', 'HITMIND_LLM_TIMEOUT_S', 'i', 90],
   ['consolidateLlmEnabled', 'HITMIND_CONSOLIDATE_LLM_ENABLED', 'b', true],
   ['bgRunner', 'HITMIND_BG_RUNNER', 'b', true],
+  ['logLevel', 'HITMIND_LOG_LEVEL', 's', 'INFO'],
+  ['logFile', 'HITMIND_LOG_FILE', 's', 'auto'],
   ['syncRoles', 'HITMIND_SYNC_ROLES', 's', 'user'],
   ['syncUserMin', 'HITMIND_SYNC_USER_MIN', 'i', 0],
   ['syncAssistantMin', 'HITMIND_SYNC_ASSISTANT_MIN', 'i', 10],

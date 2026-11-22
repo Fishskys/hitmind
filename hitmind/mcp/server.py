@@ -19,6 +19,10 @@ from typing import Optional
 
 from ..core import models
 from ..core.engine import Engine, make_embedder_from_env
+from ..logging_setup import MCP, get_logger
+from ..logging_setup import configure as configure_logging
+
+logger = get_logger(MCP)
 
 
 def _db_path(arg: str | None) -> str:
@@ -117,7 +121,13 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--selftest", action="store_true", help="run a quick core round-trip and exit")
     args = ap.parse_args(argv)
 
-    engine = Engine(_db_path(args.db), agent_id=args.agent_id, embedder=make_embedder_from_env())
+    db_path = _db_path(args.db)
+    # Standalone MCP server: stdout is the MCP protocol channel, so logs go to a local
+    # rotating file beside the DB (NOT stdout). stderr mirror kept off to avoid noise.
+    configure_logging(level=None, db_path=db_path, stderr=False, component=MCP)
+    logger.info("hitmind mcp server starting (agent=%s)", args.agent_id)
+
+    engine = Engine(db_path, agent_id=args.agent_id, embedder=make_embedder_from_env())
 
     if args.selftest:
         r = engine.remember("HitMind selftest memory about paper towels", "fact", title="selftest")

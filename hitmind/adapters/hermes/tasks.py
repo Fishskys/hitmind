@@ -13,10 +13,11 @@ Design constraints:
 
 from __future__ import annotations
 
-import logging
 import threading
 
-logger = logging.getLogger(__name__)
+from ...logging_setup import CORE, get_logger
+
+logger = get_logger(CORE)
 
 # One idle pass at a time per process, even if several provider instances each start a
 # runner (multiple cached agents/sessions). Cheap insurance against double-processing a
@@ -37,7 +38,7 @@ class BackgroundTaskRunner:
             return
         self._thread = threading.Thread(target=self._loop, name="hitmind-idle-runner", daemon=True)
         self._thread.start()
-        logger.debug("hitmind idle runner started (poll=%ss)", self._poll)
+        logger.info("idle runner started (poll=%ss)", self._poll)
 
     def wake(self) -> None:
         """Signal the runner to run a pass soon (e.g. a batch just became pending)."""
@@ -66,14 +67,15 @@ class BackgroundTaskRunner:
                 finally:
                     _PASS_LOCK.release()
                 data = (res or {}).get("data") or {}
-                # log only when a task actually did something
+                # per-task INFO summaries are emitted by the Engine; keep the runner's
+                # own echo at DEBUG so a quiet poll does not spam INFO.
                 for name, r in (data.get("tasks") or {}).items():
                     if isinstance(r, dict) and (
                         r.get("committed") or r.get("finalized") or r.get("error")
                     ):
-                        logger.info("hitmind idle task %s: %s", name, r)
+                        logger.debug("idle task %s -> %s", name, r)
             except Exception as exc:  # noqa: BLE001 - a pass must never kill the thread
-                logger.warning("hitmind idle pass failed: %s", exc)
+                logger.warning("idle pass failed: %s", exc)
 
     def stop(self) -> None:
         self._stop.set()

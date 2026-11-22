@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import logging
 import os
 import secrets
 import sqlite3
@@ -12,6 +11,7 @@ import time
 from datetime import UTC, datetime, timedelta
 from typing import Any, Optional
 
+from ..logging_setup import CORE, get_logger
 from . import lifecycle as lifecycle_mod
 from . import models, query_rewrite, retrieval, timenorm, tokenize
 from . import topic as topic_mod
@@ -21,7 +21,7 @@ from .gate import classify, content_hash
 from .lifecycle import default_valid_until, final_score, freshness, refresh_expiry
 from .vec import pack_vec
 
-logger = logging.getLogger(__name__)
+logger = get_logger(CORE)
 
 _B32 = "0123456789abcdefghjkmnpqrstvwxyz"
 
@@ -309,7 +309,7 @@ class Engine:
             except sqlite3.IntegrityError as exc:
                 if "unique" not in str(exc).lower() and "primary key" not in str(exc).lower():
                     raise
-                logger.warning("hitmind: id collision on insert (attempt %d), regenerating id", attempt + 1)
+                logger.warning("id collision on insert (attempt %d), regenerating id", attempt + 1)
         raise models.HitMindError(models.INTERNAL, "could not allocate a unique memory id")
 
     # -- ① capture ----------------------------------------------------------
@@ -348,6 +348,7 @@ class Engine:
                 [h, *scopeparams],
             ).fetchone()
             if dup is not None:
+                logger.debug("capture kind=%s -> duplicate id=%s", kind, dup["id"])
                 return models.ok({"id": dup["id"], "duplicate": True})
         norm = self._normalize(title, content, now)
         emb = self._embed_text(norm or content, title)
@@ -368,6 +369,7 @@ class Engine:
             return mid
 
         mid = self._insert_with_id_retry(_build)
+        logger.debug("capture kind=%s source=%s id=%s", kind, source, mid)
         return models.ok({"id": mid})
 
     # -- ② remember ---------------------------------------------------------
@@ -402,6 +404,7 @@ class Engine:
         existing = [dict(r) for r in rows]
         pre = classify(existing, cand)
         if pre["action"] == "duplicate":
+            logger.debug("remember kind=%s -> duplicate id=%s", kind, pre["id"])
             return models.ok({"action": "duplicate", "id": pre["id"], "root_id": None, "version": None, "status": "active"})
 
         norm = self._normalize(title, content, now)
@@ -447,6 +450,10 @@ class Engine:
 
             action, mid, root_id, version, status, conflict_of = self._insert_with_id_retry(_build)
             warn = self._capacity_warn(cur)
+        logger.debug("remember kind=%s action=%s id=%s version=%s status=%s",
+                     kind, action, mid, version, status)
+        if warn:
+            logger.warning("capacity: %s", warn)
         return models.ok({"action": action, "id": mid, "root_id": root_id, "version": version,
                           "status": status, "conflict_of": conflict_of, "warning": warn})
 
@@ -692,6 +699,9 @@ class Engine:
             "SELECT COUNT(*) c FROM memories WHERE status='active' AND cluster_stats=?",
             (topic_mod.PRE_CLUSTERED,),
         ).fetchone()["c"]
+        if cids:
+            logger.info("topic pass processed=%d finalized=%d rejected=%d failed=%d backlog=%d remaining=%d",
+                        len(cids), finalized, rejected, failed, backlog, remaining)
         return models.ok({"processed": len(cids), "finalized": finalized,
                           "rejected": rejected, "failed": failed,
                           "backlog": backlog, "remaining_backlog": remaining})
@@ -788,6 +798,8 @@ class Engine:
                     cur.execute("UPDATE memories SET status='active', conflict_of=NULL, updated_at=? "
                                 "WHERE id=? AND status='inactive'", (now, r["id"]))
                 activated += 1
+        logger.info("review pass processed=%d versioned=%d activated=%d failed=%d backlog=%d",
+                    len(rows), versioned, activated, failed, backlog)
         return models.ok({"backlog": backlog, "processed": len(rows), "versioned": versioned,
                           "activated": activated, "failed": failed,
                           "remaining_inactive": self._review_backlog()})
@@ -933,10 +945,12 @@ class Engine:
         ep = self.add_episode(summary, session_id=session_id, mode=mode, trigger="compaction")["data"]
         eid = ep["id"]
         if getattr(self._llm, "ok", False) is not True:
+            logger.debug("ingest_compaction session=%s skipped=no_llm", session_id)
             return models.ok({"episode_id": eid, "revision": ep["revision"],
                               "memories": 0, "skipped": "no_llm"})
         verdict = self._llm.extract_from_summary(new_summary=summary, prev_summary=prev_summary)
         if not isinstance(verdict, dict):
+            logger.warning("ingest_compaction session=%s skipped=llm_failed", session_id)
             return models.ok({"episode_id": eid, "revision": ep["revision"],
                               "memories": 0, "skipped": "llm_failed"})
         created = 0
@@ -948,6 +962,8 @@ class Engine:
             self.remember(content, kind, title=(mem.get("title") or None),
                           source="consolidate", episode_id=eid)
             created += 1
+        logger.info("ingest_compaction session=%s revision=%s first=%s mode=%s memories=%d",
+                    session_id, ep["revision"], prev_summary is None, mode, created)
         return models.ok({"episode_id": eid, "revision": ep["revision"], "memories": created,
                           "first": prev_summary is None, "mode": mode})
 
@@ -1042,6 +1058,9 @@ class Engine:
                     failed += 1
             else:
                 deferred += 1
+        if rows:  # only log when there was actually a batch to consider (avoid idle spam)
+            logger.info("chat_batch pass sessions=%d committed=%d deferred=%d failed=%d cooling=%d",
+                        len(rows), done, deferred, failed, cooling)
         return models.ok({"committed": done, "deferred": deferred, "failed": failed,
                           "cooling": cooling, "sessions": len(rows)})
 
@@ -1090,6 +1109,8 @@ class Engine:
             created += 1
         # SUCCESS (even 0 memories): commit cursor, clear pending, reset fails
         self._touch_session(session_id, cursor_id=last_id, pending_batch=0, fails=0)
+        logger.info("chat_batch committed session=%s range=[%d,%d] memories=%d",
+                    session_id, first_id, last_id, created)
         return models.ok({"committed": True, "memories": created, "episode_id": ep["id"],
                           "cursor_id": last_id, "range": [first_id, last_id]})
 
@@ -1137,7 +1158,7 @@ class Engine:
             try:
                 out[name] = fn().get("data")
             except Exception as exc:  # noqa: BLE001 - one task must not sink the pass
-                logger.warning("hitmind pending task %s failed: %s", name, exc)
+                logger.warning("pending task %s failed: %s", name, exc)
                 out[name] = {"error": str(exc)}
         return models.ok({"tasks": out})
 
@@ -1408,6 +1429,8 @@ class Engine:
                             )
             except Exception:
                 pass
+        logger.debug("recall top_k=%s hits=%s expand=%s", top_k, len(results),
+                     bool(filters.get("expand_topic", True)))
         return models.ok({"results": [m for _f, m in results], "count": len(results)})
 
     # -- ⑥ get --------------------------------------------------------------

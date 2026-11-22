@@ -12,7 +12,8 @@ hitmind/                          # 仓库根（docs/ references/ AGENTS.md READ
 ├── uv.lock
 ├── hitmind/                      # 扁平包布局（包目录直接在根）
 │   ├── __init__.py               # 导出 Engine, __version__
-│   ├── config_schema.py          # 桌面配置页字段（分组：记忆抽取/召回/重要性/Topic聚类/生命周期/模型）
+│   ├── config_schema.py          # 桌面配置页字段（分组：记忆抽取/召回/重要性/Topic聚类/生命周期/模型/日志）
+│   ├── logging_setup.py          # 统一日志：格式/级别/脱敏 + 宿主接入 + 独立进程本地落盘
 │   ├── io_cli.py                 # 记忆 JSON 导出/导入 CLI（export/import，--dry-run 校验）
 │   ├── core/                     # 宿主无关引擎（零 Host 依赖）
 │   │   ├── engine.py             # Engine：11 动词门面 + 召回/闲时任务编排
@@ -88,3 +89,28 @@ Core 是嵌入式 Python 库，可被宿主进程直接 import。按宿主能力
 | **chat 批次抽取** | 连续失败达上限 → 进入冷却 `chat_cooldown_seconds`（默认 1200s）：**保留游标与消息（绝不推进游标、绝不丢消息）**、清零重试计数；冷却结束再重试同一窗口 |
 | **episode 抽取** | 单次调用；失败返回 `llm_failed`，不自动重试（下次压缩是新事件）|
 | **HTTP embedding / rerank** | 单次 `timeout`；**连续失败熔断**（置 `ok=False`）后短路后续调用；召回自动降级 BM25 / 跳过 rerank；idle runner 每轮 `reset()` 探测恢复 |
+
+## 6. 日志与可观测性
+
+统一实现见 `hitmind/logging_setup.py`（零第三方依赖，纯标准库 `logging`）。**输出位置随宿主形态而定，格式统一**：
+
+- **优先接入宿主日志系统**：Hermes 适配器在 `register()` 里探测宿主 logger（`ctx.logger`/`ctx.log`，含 `_plugin_context()` 解析），命中即 `install_host_logging()` —— 把 `hitmind` 命名空间的记录转发进宿主 logger（轮转/保留交给宿主），且 **`propagate=False` 不再重复写根**。宿主无 logger 时降级为 `configure(log_file='stderr')`（只发 stderr，不落盘）。
+- **独立进程（MCP server / stdio daemon）本地落盘**：`configure()` 装一个 `RotatingFileHandler`（默认 `$HITMIND_HOME/hitmind/logs/hitmind.log`，5MB×5 份，可由 `log_file`/`HITMIND_LOG_FILE` 改），**从不写 stdout**（stdout 是 MCP/JSONL 协议通道）；daemon 另镜像到 stderr 供宿主插件逐行采集。
+
+**统一格式**（`HitMindFormatter`，毫秒精度）：
+
+```
+2026-11-22 16:30:00.123 [hitmind-core] [INFO] 内容
+<时间>                 [<组件>]     [<级别>] <消息>
+```
+
+组件标签取值：`hitmind-core`（引擎/存储）、`hitmind-hermes`（Hermes 适配）、`hitmind-mcp`（MCP server）、`hitmind-dsh`（stdio daemon）。级别 `DEBUG/INFO/WARNING/ERROR/CRITICAL`，由 `log_level`/`HITMIND_LOG_LEVEL` 控制（默认 INFO）。
+
+**记录范围（INFO 只记必要事件）**：
+- 关键写：`remember`/`capture` 的 action/id/version/status（DEBUG）、容量告警（WARNING）。
+- 关键读：`recall` 的 top_k/命中数（DEBUG）。
+- **后台任务（重点）**：`chat_batch` 每轮汇总与成功提交、`topic`/`review` 每轮处理/定稿/拒绝/失败计数、`ingest_compaction` 的 revision/首压/抽取条数、idle runner 启停 —— 均为 INFO 且**仅在确有任务时输出**，空转轮只发 DEBUG，避免刷屏。
+- 错误：各 fail-open 兜底 `WARNING`、未捕获异常 `ERROR`（含栈）。
+
+**隐私红线（硬规则）**：绝不写记忆正文、原始对话、Episode 摘要、LLM Prompt、API Key/密钥；日志只记结构/跳过原因/计数/错误。`sanitize()` 仅作最后兜底（截断超长消息 + 对 Bearer/api_key/sk-/URL 内凭据做 `[REDACTED]`），**不能替代"根本不传入敏感值"的纪律**。
+

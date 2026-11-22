@@ -8,13 +8,14 @@ works fine if this source is unavailable (episodes/memories already stand alone)
 
 from __future__ import annotations
 
-import logging
 import os
 import sqlite3
 import threading
 from pathlib import Path
 
-logger = logging.getLogger(__name__ + ".state_source")
+from ..logging_setup import CORE, get_logger
+
+logger = get_logger(CORE)
 
 
 def default_state_db(hermes_home: str | os.PathLike | None = None) -> Path:
@@ -60,7 +61,7 @@ class StateDBSource:
                 cur = self._connect().execute(sql, params)
                 return [dict(r) for r in cur.fetchall()]
         except Exception as e:
-            logger.warning("hitmind state.db read failed (%s): %r", self.db_path, e)
+            logger.warning("state.db read failed (%s): %r", self.db_path, e)
             return []
 
     def latest_summary(self, session_id: str) -> str | None:
