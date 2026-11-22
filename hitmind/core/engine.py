@@ -1006,6 +1006,7 @@ class Engine:
         processor does the (expensive) extraction off the hot path.
         """
         if self.state_source is None or not session_id:
+            logger.debug("note_activity skip: state_source=%s session=%r", self.state_source is not None, session_id)
             return models.ok({"skipped": "no_source"})
         st = self.session_state(session_id)
         now = _now(self.tz_hours)
@@ -1017,9 +1018,14 @@ class Engine:
             counter = getattr(self.state_source, "count_turns_after", None)
             unprocessed = counter(session_id, cursor) if callable(counter) \
                 else self.state_source.count_after(session_id, cursor)
-            if unprocessed >= 2 * int(self.consolidate_every_turns):
+            threshold = 2 * int(self.consolidate_every_turns)
+            logger.debug("note_activity sid=%s cursor=%s unprocessed=%d threshold=%d pending=%s",
+                         session_id, cursor, unprocessed, threshold, unprocessed >= threshold)
+            if unprocessed >= threshold:
                 self._touch_session(session_id, last_activity=now, pending_batch=1,
                                     batch_start=cursor)
+                logger.info("chat batch due sid=%s unprocessed=%d threshold=%d cursor=%s",
+                            session_id, unprocessed, threshold, cursor)
                 return models.ok({"pending": True, "unprocessed": unprocessed})
         self._touch_session(session_id, last_activity=now)
         pending = bool(self.session_state(session_id).get("pending_batch"))
