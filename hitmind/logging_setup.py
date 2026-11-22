@@ -264,85 +264,26 @@ def _detach_hitmind_handlers(root: logging.Logger) -> None:
 # --------------------------------------------------------------------------- #
 # Host-native integration (preferred path when a host logger exists)
 # --------------------------------------------------------------------------- #
-def install_host_logging(host_logger, *, level=None, log_file: Optional[str] = None,
-                         db_path: Optional[str] = None, component: str = "hitmind",
-                         mirror_local: bool = True) -> Optional[Path]:
-    """Route HitMind logs INTO the host's logging system, optionally mirroring to a
-    local rotating file (self-owned backup).
+def use_host_logging(*, level=None, component: str = "hitmind") -> None:
+    """Clean host integration: let the host's OWN logging pipeline handle our records.
 
-    Attaches ONE handler to the ``hitmind`` logger whose ``emit`` forwards each record
-    to the host logger at the same level. Set ``propagate=False`` on the ``hitmind``
-    logger so records do NOT also bubble to the root (which would duplicate into the
-    fallback). We deliberately attach to ``hitmind`` (not root) so we never hijack the
-    host's own root logging.
+    Sets the ``hitmind`` logger's level (so DEBUG/INFO record creation is gated),
+    enables propagation, and ensures NO HitMind-owned handlers linger on either the
+    ``hitmind`` logger or the root. Records then propagate to the host's existing root
+    handlers (e.g. Hermes' ``agent.log``) in the host's own format.
 
-    If ``mirror_local`` and a file target resolves, a RotatingFileHandler is ALSO
-    attached to the ``hitmind`` logger, giving us a durable local copy regardless of
-    how the host handles its own records.
-
-    Returns the local mirror path (or None).
+    This NEVER touches the root logger's level and NEVER adds handlers to root — the
+    key difference from ``configure()`` / ``install_host_logging()``: we do not mutate
+    global logging state. Use this when the host already has a working root pipeline
+    (Hermes gateway) but does not expose a concrete logger object to forward to.
     """
     lvl = level_no(level if level is not None else os.environ.get("HITMIND_LOG_LEVEL", "INFO"))
     hlog = logging.getLogger("hitmind")
-    hlog.setLevel(lvl)
-
-    # Tear down any previous HitMind handler (idempotent re-install).
     for h in list(hlog.handlers):
-        if getattr(h, _HITMIND_HANDLER_ATTR, False):
-            hlog.removeHandler(h)
+        hlog.removeHandler(h)
+    hlog.setLevel(lvl)
+    hlog.propagate = True
+    # Drop any handlers a prior `configure()` may have attached to root, so we don't
+    # double-emit into a stale file/stderr; we rely on the host's handlers instead.
+    _detach_hitmind_handlers(logging.getLogger())
 
-    # 1) host-forwarding handler
-    host_handler = _HostForwardHandler(host_logger, component)
-    host_handler.setLevel(lvl)
-    setattr(host_handler, _HITMIND_HANDLER_ATTR, True)
-    hlog.addHandler(host_handler)
-
-    # 2) optional local mirror file
-    mirror_path: Optional[Path] = None
-    if mirror_local:
-        target = _resolve_log_file(log_file, db_path)
-        if str(target).lower() not in ("stderr", "-", "off", "none"):
-            fh = _make_rotating_handler(target, lvl)
-            setattr(fh, _HITMIND_HANDLER_ATTR, True)
-            hlog.addHandler(fh)
-            mirror_path = target
-
-    # Do not double-emit to root: the host handler owns the output now.
-    hlog.propagate = False
-    return mirror_path
-
-
-class _HostForwardHandler(logging.Handler):
-    """Forward records to a host logger object (debug/info/warning/error/critical)."""
-
-    def __init__(self, host_logger, component: str):
-        super().__init__()
-        self._host = host_logger
-        self._component = component
-
-    def emit(self, record: logging.LogRecord) -> None:
-        try:
-            msg = self.format_payload(record)
-            fn = {
-                logging.DEBUG: getattr(self._host, "debug", None),
-                logging.INFO: getattr(self._host, "info", None),
-                logging.WARNING: getattr(self._host, "warning", None),
-                logging.ERROR: getattr(self._host, "error", None),
-                logging.CRITICAL: getattr(self._host, "critical", None),
-            }.get(record.levelno, getattr(self._host, "info", None))
-            if callable(fn):
-                fn(msg)
-        except Exception:  # pragma: no cover - never let logging break a turn
-            pass
-
-    def format_payload(self, record: logging.LogRecord) -> str:
-        # Prefer the per-record component tag (set by get_logger); fall back to the
-        # install-time component for bare stdlib loggers.
-        component = getattr(record, "component", None) or self._component
-        try:
-            body = record.getMessage()
-        except Exception:
-            body = str(record.msg)
-        if record.exc_info:
-            body = f"{body}\n{logging.Formatter().formatException(record.exc_info)}"
-        return sanitize(f"[{component}] {body}")

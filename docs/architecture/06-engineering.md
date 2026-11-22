@@ -94,7 +94,7 @@ Core 是嵌入式 Python 库，可被宿主进程直接 import。按宿主能力
 
 统一实现见 `hitmind/logging_setup.py`（零第三方依赖，纯标准库 `logging`）。**输出位置随宿主形态而定，格式统一**：
 
-- **优先接入宿主日志系统**：Hermes 适配器在 `register()` 里探测宿主 logger（`ctx.logger`/`ctx.log`，含 `_plugin_context()` 解析），命中即 `install_host_logging()` —— 把 `hitmind` 命名空间的记录转发进宿主 logger（轮转/保留交给宿主），且 **`propagate=False` 不再重复写根**。宿主无 logger 时降级为 `configure(log_file='stderr')`（只发 stderr，不落盘）。
+- **优先接入宿主日志系统**：Hermes 适配器在 `register()` 里调用 `use_host_logging()` —— 只设 `hitmind` logger 的级别并 `propagate=True`，让记录**经宿主既有的根 handler**（如 `agent.log`）输出、沿用宿主格式；**不改根 logger 级别、不往根或 `hitmind` 挂 handler、不写自有文件**（零全局副作用）。
 - **独立进程（MCP server / stdio daemon）本地落盘**：`configure()` 装一个 `RotatingFileHandler`（默认 `$HITMIND_HOME/hitmind/logs/hitmind.log`，5MB×5 份，可由 `log_file`/`HITMIND_LOG_FILE` 改），**从不写 stdout**（stdout 是 MCP/JSONL 协议通道）；daemon 另镜像到 stderr 供宿主插件逐行采集。
 
 **统一格式**（`HitMindFormatter`，毫秒精度）：

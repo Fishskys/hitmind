@@ -75,3 +75,36 @@ def test_configure_is_idempotent(tmp_path):
     n2 = len([h for h in logging.getLogger().handlers if getattr(h, ls._HITMIND_HANDLER_ATTR, False)])
     assert n1 == n2 == 1
     ls._detach_hitmind_handlers(logging.getLogger())
+
+
+def test_use_host_logging_leaves_root_untouched_but_propagates():
+    """Clean host integration: set our level + propagate, do NOT mutate root
+    (level/handlers) and do NOT attach handlers to the `hitmind` logger."""
+    root = logging.getLogger()
+    try:
+        ls.configure(level="DEBUG", log_file="stderr", stderr=True, force=True)  # dirty state
+        # Snapshot root state right BEFORE our clean call — use_host_logging must not
+        # change the root level and must not leave HitMind-owned handlers on root.
+        root_level_snapshot = root.level
+        ls.use_host_logging(level="WARNING")
+        assert root.level == root_level_snapshot
+        assert not any(getattr(h, ls._HITMIND_HANDLER_ATTR, False) for h in root.handlers)
+        hlog = logging.getLogger("hitmind")
+        assert hlog.level == logging.WARNING
+        assert hlog.propagate is True
+        assert not [h for h in hlog.handlers if getattr(h, ls._HITMIND_HANDLER_ATTR, False)]
+        # functional: a record flows to the host's existing root handler (propagation)
+        seen = []
+        cap = logging.Handler()
+        cap.emit = lambda r: seen.append(r.getMessage())
+        root.addHandler(cap)
+        try:
+            ls.get_logger(ls.HERMES).warning("reaches-host-handler")
+            assert "reaches-host-handler" in seen
+        finally:
+            root.removeHandler(cap)
+    finally:
+        ls._detach_hitmind_handlers(root)
+        logging.getLogger("hitmind").setLevel(logging.NOTSET)
+        logging.getLogger("hitmind").propagate = True
+        root.setLevel(logging.WARNING)

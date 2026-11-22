@@ -21,33 +21,13 @@ from typing import Any
 
 from ...core import models
 from ...core.engine import Engine, make_embedder_from_env
-from ...logging_setup import HERMES, get_logger, install_host_logging
+from ...logging_setup import HERMES, get_logger, use_host_logging
 from ...tools import _TOOL_MAP, _TOOL_SCHEMAS  # host-agnostic single source of truth
 from .envelope import sanitize_user_content
 from .llm import HostClusterLLM
 from .tasks import BackgroundTaskRunner
 
 logger = get_logger(HERMES)
-
-
-def _resolve_host_logger(ctx):
-    """Best-effort: find the real host logger on the plugin ctx (or its underlying
-    PluginContext). Returns None when the host exposes no logger — the caller then
-    leaves the built-in fallback (or the host's own root logging) in charge."""
-    candidates = [ctx]
-    pctx = getattr(ctx, "_plugin_context", None)
-    if callable(pctx):
-        try:
-            candidates.append(pctx())
-        except Exception:  # pragma: no cover - host-specific
-            pass
-    for c in candidates:
-        if c is None:
-            continue
-        lg = getattr(c, "logger", None) or getattr(c, "log", None)
-        if lg is not None:
-            return lg
-    return None
 
 try:  # pragma: no cover - depends on host
     from agent.memory_provider import MemoryProvider  # type: ignore
@@ -445,25 +425,17 @@ class HitMindMemoryProvider(MemoryProvider):  # type: ignore[misc]
 
 def register(ctx) -> None:
     """Hermes memory-loader entry point."""
-    # Preferred: route HitMind logs into the HOST's logging system (before anything
-    # else logs). Host-controlled rotation/retention; we do NOT also write a local
-    # file here (that per-host durability belongs to the standalone MCP path).
+    # Preferred: let the HOST's own logging pipeline handle HitMind records. We only
+    # set the `hitmind` logger's level + propagate=True; records flow into the host's
+    # existing handlers (e.g. agent.log) in the host's own format. We do NOT mutate the
+    # root logger (no level change, no handler) and do NOT write our own file here.
     try:
-        host_logger = _resolve_host_logger(ctx)
         hermes_home = os.environ.get("HERMES_HOME") or str(Path.home() / ".hermes")
-        db_path = str(Path(hermes_home) / "hitmind" / "data" / "hitmind.db")
         try:
             _cfg = HitMindMemoryProvider._read_native_config(hermes_home)
         except Exception:  # pragma: no cover - defensive
             _cfg = {}
-        _level = _cfg.get("log_level")
-        if host_logger is not None:
-            install_host_logging(host_logger, level=_level, db_path=db_path, component=HERMES)
-        else:
-            # No host logger surface -> stderr-only fallback (no disk writes; the host's
-            # own root logging still receives propagated records).
-            from ...logging_setup import configure as _configure
-            _configure(level=_level, log_file="stderr", stderr=True, component=HERMES)
+        use_host_logging(level=_cfg.get("log_level"), component=HERMES)
     except Exception:  # pragma: no cover - logging must never break registration
         pass
     try:
