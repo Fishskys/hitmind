@@ -17,6 +17,8 @@ class _FakeSource:
         self.n = n
     def count_after(self, session_id, after_id=0):
         return self.n
+    def count_turns_after(self, session_id, after_id=0):
+        return self.n
     def rows_after(self, session_id, after_id=0, limit=400):
         return [{"id": i + 1, "role": "user", "content": f"消息{i}", "timestamp": None}
                 for i in range(self.n)]

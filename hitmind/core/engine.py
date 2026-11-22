@@ -994,10 +994,16 @@ class Engine:
         st = self.session_state(session_id)
         now = _now(self.tz_hours)
         if not st.get("pending_batch"):
-            unprocessed = self.state_source.count_after(session_id, int(st.get("cursor_id") or 0))
+            cursor = int(st.get("cursor_id") or 0)
+            # Threshold is in TURNS (user messages), not raw transcript rows: a single turn
+            # fans out into many assistant/tool rows, so counting rows flags a batch after ~1
+            # turn. Prefer count_turns_after; fall back to count_after for custom/legacy sources.
+            counter = getattr(self.state_source, "count_turns_after", None)
+            unprocessed = counter(session_id, cursor) if callable(counter) \
+                else self.state_source.count_after(session_id, cursor)
             if unprocessed >= 2 * int(self.consolidate_every_turns):
                 self._touch_session(session_id, last_activity=now, pending_batch=1,
-                                    batch_start=int(st.get("cursor_id") or 0))
+                                    batch_start=cursor)
                 return models.ok({"pending": True, "unprocessed": unprocessed})
         self._touch_session(session_id, last_activity=now)
         pending = bool(self.session_state(session_id).get("pending_batch"))

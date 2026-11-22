@@ -8,9 +8,13 @@ works fine if this source is unavailable (episodes/memories already stand alone)
 
 from __future__ import annotations
 
+import logging
 import os
 import sqlite3
+import threading
 from pathlib import Path
+
+logger = logging.getLogger(__name__ + ".state_source")
 
 
 def default_state_db(hermes_home: str | os.PathLike | None = None) -> Path:
@@ -25,26 +29,38 @@ class StateDBSource:
         self.db_path = str(db_path)
         self.ok = os.path.exists(self.db_path)
         self._conn = None
+        # The read-only source is queried from MULTIPLE threads: note_activity runs on the
+        # turn-sync worker, while process_chat_batch (the actual extraction) runs on the idle
+        # BackgroundTaskRunner thread. A sqlite connection is thread-affine by default, so a
+        # cached connection created on one thread raises "SQLite objects created in a thread
+        # can only be used in that same thread" when used from the other — which silently made
+        # every chat batch read 0 rows and never produce memories. Allow cross-thread use and
+        # serialize access with a lock (sqlite objects aren't safe for concurrent use).
+        self._lock = threading.Lock()
 
     def _connect(self):
         if self._conn is None:
             # immutable/ro: never lock or modify the host DB.
-            self._conn = sqlite3.connect(f"file:{self.db_path}?mode=ro", uri=True)
+            self._conn = sqlite3.connect(
+                f"file:{self.db_path}?mode=ro", uri=True, check_same_thread=False)
             self._conn.row_factory = sqlite3.Row
         return self._conn
 
     def close(self):
-        if self._conn is not None:
-            self._conn.close()
-            self._conn = None
+        with self._lock:
+            if self._conn is not None:
+                self._conn.close()
+                self._conn = None
 
     def _rows(self, sql: str, params: list) -> list[dict]:
         if not self.ok:
             return []
         try:
-            cur = self._connect().execute(sql, params)
-            return [dict(r) for r in cur.fetchall()]
-        except Exception:
+            with self._lock:
+                cur = self._connect().execute(sql, params)
+                return [dict(r) for r in cur.fetchall()]
+        except Exception as e:
+            logger.warning("hitmind state.db read failed (%s): %r", self.db_path, e)
             return []
 
     def latest_summary(self, session_id: str) -> str | None:
@@ -68,7 +84,7 @@ class StateDBSource:
         Used by the chat batch processor: it reads ``[cursor, ...]`` so nothing is
         skipped and nothing is processed twice (cursor only advances on success).
         """
-        return self._rows(
+        out = self._rows(
             "SELECT id, role, content, timestamp FROM messages "
             "WHERE session_id=? AND id>? AND active=1 "
             "AND content NOT LIKE '[CONTEXT COMPACTION%' AND content NOT LIKE '[PRIOR CONTEXT%' "
@@ -76,11 +92,30 @@ class StateDBSource:
             "ORDER BY id LIMIT ?",
             [session_id, after_id, limit],
         )
+        return out
 
     def count_after(self, session_id: str, after_id: int = 0) -> int:
         """How many real (non-summary) messages are newer than ``after_id``."""
         rows = self._rows(
             "SELECT COUNT(*) c FROM messages WHERE session_id=? AND id>? AND active=1 "
+            "AND content NOT LIKE '[CONTEXT COMPACTION%' AND content NOT LIKE '[PRIOR CONTEXT%' "
+            "AND content NOT LIKE '[CONTEXT SUMMARY%'",
+            [session_id, after_id],
+        )
+        return int(rows[0]["c"]) if rows else 0
+
+    def count_turns_after(self, session_id: str, after_id: int = 0) -> int:
+        """How many real *turns* (non-empty ``user`` messages) are newer than ``after_id``.
+
+        This is the correct unit for the chat-batch threshold: ``consolidate_every_turns``
+        is expressed in conversation TURNS, not raw transcript rows. A single turn fans out
+        into many assistant/tool rows (each tool call is its own row), so counting all rows
+        flags a batch after ~1 turn — far too eager. Counting user messages tracks the real
+        turn count. Compaction-summary rows are excluded (they are not chat content).
+        """
+        rows = self._rows(
+            "SELECT COUNT(*) c FROM messages WHERE session_id=? AND id>? AND active=1 "
+            "AND role='user' AND TRIM(COALESCE(content,''))<>'' "
             "AND content NOT LIKE '[CONTEXT COMPACTION%' AND content NOT LIKE '[PRIOR CONTEXT%' "
             "AND content NOT LIKE '[CONTEXT SUMMARY%'",
             [session_id, after_id],

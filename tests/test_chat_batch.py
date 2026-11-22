@@ -26,9 +26,13 @@ class _Source:
     def add(self, msgs):
         base = len(self.rows)
         for i, c in enumerate(msgs):
-            self.rows.append({"id": base + i + 1, "role": "user", "content": c, "timestamp": None})
+            role, content = (c if isinstance(c, tuple) else ("user", c))
+            self.rows.append({"id": base + i + 1, "role": role, "content": content, "timestamp": None})
     def count_after(self, session_id, after_id=0):
         return sum(1 for r in self.rows if r["id"] > after_id)
+    def count_turns_after(self, session_id, after_id=0):
+        return sum(1 for r in self.rows
+                   if r["id"] > after_id and r["role"] == "user" and (r["content"] or "").strip())
     def rows_after(self, session_id, after_id=0, limit=400):
         return [r for r in self.rows if r["id"] > after_id][:limit]
     def latest_summary(self, session_id):
@@ -38,7 +42,7 @@ class _Source:
 def _eng():
     e = Engine(str(tempfile.mkdtemp()) + "/d.db")
     e.state_source = _Source()
-    e.consolidate_every_turns = 1  # need >= 2 messages
+    e.consolidate_every_turns = 1  # need >= 2 turns (user messages)
     e.idle_consolidate_seconds = 0  # idle immediately
     return e
 
@@ -52,6 +56,20 @@ def test_note_activity_flags_batch_only_past_threshold():
     e.state_source.add(["一"])
     assert e.note_activity("s")["data"]["pending"] is False  # 1 msg < 2
     e.state_source.add(["二"])
+    assert e.note_activity("s")["data"]["pending"] is True
+    e.close()
+
+
+def test_threshold_counts_turns_not_rows():
+    """A single user turn that fans out into many assistant/tool rows must NOT trip the
+    batch threshold — the counter measures real user turns, not transcript rows."""
+    e = _eng()  # threshold = 2 * 1 = 2 turns
+    e.state_source.add([("user", "问题一"), ("assistant", "回复"), ("tool", "{}"),
+                        ("assistant", "再回复"), ("tool", "{}")])
+    # 5 rows but only 1 user turn -> below the 2-turn threshold
+    assert e.note_activity("s")["data"]["pending"] is False
+    e.state_source.add([("user", "问题二")])
+    # now 2 user turns -> at threshold
     assert e.note_activity("s")["data"]["pending"] is True
     e.close()
 

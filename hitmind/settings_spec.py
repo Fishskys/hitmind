@@ -70,7 +70,7 @@ SETTINGS: tuple[Setting, ...] = (
     Setting("sync_assistant_min", "HITMIND_SYNC_ASSISTANT_MIN", K_NUMBER, 10,
             "assistant 消息最小长度（字符）", "短于此长度的 assistant 消息不捕获。", G_EXTRACT, cast="int"),
     Setting("consolidate_every_turns", "HITMIND_SYNC_CONSOLIDATE_EVERY", K_NUMBER, 10,
-            "chat 批次轮数阈值", "未处理消息数 ≥ 2×此值 时标记待处理批次（闲时抽取）。", G_EXTRACT,
+            "chat 批次轮数阈值", "未处理的真实对话回合数（user 消息数）≥ 2×此值 时标记待处理批次（闲时抽取）。", G_EXTRACT,
             engine_arg="consolidate_every_turns", cast="int"),
     Setting("memory_max_chars", "HITMIND_MEMORY_MAX_CHARS", K_NUMBER, 1024,
             "单条记忆最大长度（字符）",

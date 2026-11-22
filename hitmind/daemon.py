@@ -148,6 +148,17 @@ class DaemonTurnStore:
             ).fetchone()
         return int(row["c"]) if row else 0
 
+    def count_turns_after(self, session_id: str, after_id: int = 0) -> int:
+        """Real turns (non-empty ``user`` messages) newer than ``after_id`` — the chat-batch
+        threshold unit (matches StateDBSource.count_turns_after)."""
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT COUNT(*) c FROM host_messages WHERE session_id=? AND id>? AND active=1 "
+                "AND role='user' AND TRIM(COALESCE(content,''))<>''",
+                (session_id, after_id),
+            ).fetchone()
+        return int(row["c"]) if row else 0
+
     def close(self):
         try:
             self._conn.close()
