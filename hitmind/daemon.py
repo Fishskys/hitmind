@@ -476,7 +476,13 @@ class Daemon:
     def serve_forever(self) -> int:
         if self.runner is not None:
             self.runner.start()
-        logger.info("daemon ready (db=%s agent=%s)", self.db_path, self.agent_id)
+        logger.info(
+            "daemon ready (db=%s agent=%s version=%s consolidate_every_turns=%s sync_user_min=%s log_level=%s)",
+            self.db_path, self.agent_id, _version(),
+            getattr(self.worker, "consolidate_every_turns", "?"),
+            getattr(self.serve, "_user_min", "?"),
+            os.environ.get("HITMIND_LOG_LEVEL", "INFO"),
+        )
         try:
             for raw in sys.stdin:
                 raw = raw.strip()

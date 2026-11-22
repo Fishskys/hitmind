@@ -439,6 +439,23 @@ def register(ctx) -> None:
         except Exception:  # pragma: no cover - defensive
             _cfg = {}
         use_host_logging(level=_cfg.get("log_level"), component=HERMES)
+        try:
+            from ... import __version__ as _hm_ver
+            from ...settings_spec import BY_KEY as _BK
+
+            def _cfgval(k):
+                v = _cfg.get(k)
+                return v if (v is not None and v != "") else _BK[k].default
+            logger.info(
+                "hitmind ready version=%s platform=hermes consolidate_every_turns=%s "
+                "sync_user_min=%s sync_roles=%s idle_consolidate=%ss log_level=%s",
+                _hm_ver,
+                _cfgval("consolidate_every_turns"), _cfgval("sync_user_min"),
+                _cfgval("sync_roles"), _cfgval("idle_consolidate_seconds"),
+                _cfg.get("log_level") or "INFO",
+            )
+        except Exception:  # pragma: no cover - startup log must never break registration
+            pass
     except Exception:  # pragma: no cover - logging must never break registration
         pass
     try:
