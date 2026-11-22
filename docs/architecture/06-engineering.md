@@ -75,6 +75,10 @@ Core 是嵌入式 Python 库，可被宿主进程直接 import。按宿主能力
 | 召回 | `rerank_enabled` / `rerank_model` / `rerank_pool` | true / 本地 cross-encoder / 30 | 二级精排（开关/模型/候选池） |
 | 召回 | `topic_expand_hits` / `topic_expand_cap` | 3 / 3 | 同主题扩展：前 N 条命中的 topic / 每主题总量封顶 |
 | 召回 | `rel_weight` / `importance_weight` | 0.8 / 0.1 | 最终分权重（余下给新鲜度）|
+| 捕获 | `sync_roles` | user | 自动捕获角色（`user` / `user,assistant`）|
+| 捕获 | `sync_user_min` / `sync_assistant_min` | 0 / 10 | 消息最小长度（字符），短于此不捕获；**user 默认 0=不限**，仅空消息被过滤 |
+| 抽取批次 | `consolidate_every_turns` | 10 | chat 批次轮数阈值；未处理**真实 user 回合**数 ≥ 2×此值（默认 20）时标记待抽取 |
+| 抽取批次 | `idle_consolidate_seconds` | 300 | 会话空闲满多久后由后台 runner 执行抽取（0=关闭）|
 | 记忆抽取 | `memory_max_chars` | 1024 | 单条记忆最大字符数（动态写入提示词，超出提示拆分）|
 | 记忆抽取 | `time_normalize` | true | 写入时相对日期归一开关 |
 

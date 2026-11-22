@@ -109,4 +109,4 @@ Topic 聚类定稿的拉取式双阈值逻辑见 [05 §3](05-topic-clustering.md
 
 ## 8. 相关参数
 
-`idle_consolidate_seconds`（默认 300，0 关闭闲时整理）、`idle_poll_seconds`（默认 60）、`consolidate_every_turns`（默认 10，chat 批次轮数阈值）、`cluster_min_size`（默认 10，全局 backlog 门槛）、`topic_min_cluster`（默认 2，每簇够格线）、`episode_ttl_days`（默认 90）。详见 [06 §4](06-engineering.md)。
+`idle_consolidate_seconds`（默认 300，0 关闭闲时整理）、`idle_poll_seconds`（默认 60）、`consolidate_every_turns`（默认 10；chat 批次按**未处理的真实 user 回合数**计，达到 **2×此值（默认 20）** 才标记待抽取——10 是批大小、20 是触发线，留一批余量；回合数经 `sync_roles`/`sync_user_min` 过滤，user 默认门槛 0=不限）、`cluster_min_size`（默认 10，全局 backlog 门槛）、`topic_min_cluster`（默认 2，每簇够格线）、`episode_ttl_days`（默认 90）。详见 [06 §4](06-engineering.md)。
