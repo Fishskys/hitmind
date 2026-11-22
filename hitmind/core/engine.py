@@ -1074,20 +1074,28 @@ class Engine:
     def process_chat_batch(self, session_id: str) -> dict:
         """Extract one chat batch for a session and commit the cursor (or not)."""
         if self.state_source is None:
+            logger.warning("chat_batch skip sid=%s reason=no_source (state_source missing)", session_id)
             return models.ok({"skipped": "no_source"})
         st = self.session_state(session_id)
         if self._in_cooldown(st):
             # in cooldown after repeated failures: keep cursor/messages, retry later
+            logger.info("chat_batch skip sid=%s reason=cooldown until=%s fails=%s",
+                        session_id, int(st.get("batch_start") or 0), st.get("fails"))
             return models.ok({"skipped": "cooldown", "committed": False,
                               "cooldown_until": int(st.get("batch_start") or 0)})
         cursor = int(st.get("cursor_id") or 0)
         msgs = self.state_source.rows_after(session_id, cursor, limit=400)
-        msgs = [m for m in msgs if (m.get("content") or "").strip()]
-        if not msgs:
+        nonempty = [m for m in msgs if (m.get("content") or "").strip()]
+        if not nonempty:
+            logger.info("chat_batch skip sid=%s reason=empty cursor=%s rows=%d",
+                        session_id, cursor, len(msgs))
             self._touch_session(session_id, pending_batch=0)
             return models.ok({"skipped": "empty", "committed": True})
+        msgs = nonempty
         last_id = int(msgs[-1]["id"])
         if getattr(self._llm, "ok", False) is not True:
+            logger.warning("chat_batch skip sid=%s reason=no_llm (LLM unavailable) msgs=%d",
+                           session_id, len(msgs))
             gave_up = self._chat_batch_fail(st, session_id, reason="no_llm")
             if gave_up is not None:
                 return gave_up
@@ -1096,6 +1104,8 @@ class Engine:
             [{"role": m.get("role") or "user", "content": m.get("content") or ""} for m in msgs])
         if not isinstance(verdict, dict):
             # extraction FAILED: keep cursor + pending, count a retry (bounded via cooldown)
+            logger.warning("chat_batch skip sid=%s reason=llm_failed msgs=%d verdict_type=%s",
+                           session_id, len(msgs), type(verdict).__name__)
             gave_up = self._chat_batch_fail(st, session_id, reason="llm_failed")
             if gave_up is not None:
                 return gave_up
