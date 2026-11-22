@@ -337,6 +337,9 @@ class HitMindMemoryProvider(MemoryProvider):  # type: ignore[misc]
                 sanitizer=sanitize_user_content,
             )
             if not ok:
+                logger.debug("sync_turn skip capture sid=%s role=user len=%d user_min=%d",
+                             (session_id or self._session_id), len((user_content or "").strip()),
+                             self._user_min_len)
                 return
             sid = session_id or self._session_id
             res = self._engine.note_activity(sid)
